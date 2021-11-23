@@ -1,0 +1,4 @@
+/TwitterEngine/bin/*
+/TwitterEngine/obj/*
+/TwitterEngine/BClient.fsx
+/TwitterEngine/BServer.fsx
