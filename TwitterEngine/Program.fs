@@ -26,18 +26,41 @@ type UsersActorInstructions=
 type TweetsActorInstructions=
     | Tweet of string*string   //userid //tweet
     | ReTweet of string*string*string //userid //copyfromuserid //tweetid
-    | ReceiveFollowers of string*int*List<string>  //userid //tweetid //Listoffollowers
+    | ReceiveFollowers of string*int*List<string> //userid/ //tweetid //listoffollowers
+    | ReceiveHashTags of string*int*List<string>  //userid //tweetid //Listoffollowers
+    | ReceiveMentions of string*int*List<string>  //userid //tweetid //Listoffollowers
+
+
+// write code to handle received hashtags and mentions
+
 
 type TweetsSenderActorInstruction=
-    | SendTweet of string*List<String> // tweet and recipientList
+    | SendTweet of string*string*List<String> // tweet and recipientList
 
-let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
+type TweetParser =
+    | GetHashTagsAndMentions of string*int*string //tweet
+
+let TweetsParserActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     //printfn "abc"
     let rec loop() = actor{
         let! message = mailbox.Receive()
         match message with
-        | SendTweet (tweet, recipientList) ->
-            recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet =>%s<= was sent to %s" index tweet recipientList.[index])
+        | GetHashTagsAndMentions (userId,tweetId, tweet) ->
+            let words = tweet.Split ' '
+            let listHashTags = new List<string>()
+            let listMentions = new List<string>()
+            for word in words do
+                if word.[0] = '#' then
+                    listHashTags.Add(word)
+                if word.[0] = '@' then
+                    listMentions.Add(word.Substring(1))
+            let actorPath =  @"akka://twitterSystem/user/tweetsRef"
+            let tweetsRef = select actorPath twitterSystem
+            tweetsRef <! ReceiveHashTags(userId, tweetId, listHashTags)
+            tweetsRef <! ReceiveMentions(userId, tweetId, listMentions)
+
+
+
 
         
 
@@ -45,6 +68,23 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
         return! loop()
     }
     loop()
+
+let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
+    //printfn "abc"
+    let rec loop() = actor{
+        let! message = mailbox.Receive()
+        match message with
+        | SendTweet (userid,tweet, recipientList) ->
+            recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet by %s =>%s<= was sent to %s"  index userid tweet item)
+            // recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet =>%s<= was sent to %s" index tweet recipientList.[index])
+
+        
+
+
+        return! loop()
+    }
+    loop()
+
 
 
 let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
@@ -68,12 +108,24 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let actorPath =  @"akka://twitterSystem/user/usersRef"
             let usersRef = select actorPath twitterSystem
             usersRef <! GetFollowers(userId, tweetId)
+            let actorPath =  @"akka://twitterSystem/user/tweetsParserRef"
+            let tweetsParserRef = select actorPath twitterSystem
+            usersRef <! GetFollowers(userId, tweetId)
+            tweetsParserRef <! GetHashTagsAndMentions(userId,tweetId, tweet)
+            
 
         | ReceiveFollowers (userId, tweetId, followerList) ->
             let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
             let tweetsSenderRef = select actorPath twitterSystem
             let tweet = tweetsMap.[tweetId]
-            tweetsSenderRef <! SendTweet(tweet, followerList)
+            tweetsSenderRef <! SendTweet(userId, tweet, followerList)
+
+        | ReceiveHashTags(userId, tweetId, listHashTags) ->
+            printfn ""
+
+        | ReceiveMentions(userId, tweetId, listMentions) ->
+            printfn ""
+
 
         | _-> 
             printfn "Wrong input"
@@ -102,7 +154,8 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     //let mutable userPasswordMap = Map.empty
     let userPasswordMap = new Dictionary<string,string>()
     let mutable activeUsersSet = Set.empty
-    let mutable userFollowerList = new Dictionary<string, List<string>>()
+    let userFollowerList = new Dictionary<string, List<string>>()
+    let hashTagFollowerList = new Dictionary<string, List<string>>()
     let rec loop() = actor {
         let! message = mailbox.Receive()
         let sender = mailbox.Sender()
@@ -177,12 +230,16 @@ let main argv =
     let tweetsSenderRef = spawn twitterSystem "tweetsSenderRef" (TweetsSenderActor twitterSystem);
     let usersRef = spawn twitterSystem "usersRef" (UsersActor twitterSystem);
     let tweetsRef = spawn twitterSystem "tweetsRef" (TweetsActor twitterSystem);
+    let tweetsParserRef = spawn twitterSystem "tweetsParserRef" (TweetsParserActor twitterSystem);
 
     usersRef <! RegisterAccount("prasad", "prasad")
     usersRef <! RegisterAccount("vaishnavi", "vaishnavi")
+    usersRef <! RegisterAccount("siddhi", "siddhi")
     usersRef <! Login("prasad", "prasad")
     usersRef <! Login("vaishnavi", "vaishnavi")
+    usersRef <! Login("siddhi", "siddhi")
     usersRef <! Follow("vaishnavi", "prasad")
+    usersRef <! Follow("siddhi", "prasad")
     tweetsRef <! Tweet("prasad", "Hello followers...gooooood Morning")
     //usersRef <! Logout("prasad")
     usersRef <! PrintInfo
