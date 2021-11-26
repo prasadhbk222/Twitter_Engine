@@ -22,11 +22,14 @@ type UsersActorInstructions=
     | PrintInfo
     | GetFollowers of string*int
     | Follow of string*string //userid // useridoffollowed
-
+    | FollowHashTag of string*string //userid //hashtag
+    | GetFollowersOfHashTag of string*int*string //userid //tweetid//hashtag 
+ 
 type TweetsActorInstructions=
     | Tweet of string*string   //userid //tweet
     | ReTweet of string*string*string //userid //copyfromuserid //tweetid
     | ReceiveFollowers of string*int*List<string> //userid/ //tweetid //listoffollowers
+    | ReceiveFollowersOfHashTag of string*int*List<string> //userid/ //tweetid //listofhashtagfollowers
     | ReceiveHashTags of string*int*List<string>  //userid //tweetid //Listoffollowers
     | ReceiveMentions of string*int*List<string>  //userid //tweetid //Listoffollowers
 
@@ -44,6 +47,7 @@ let TweetsParserActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     //printfn "abc"
     let rec loop() = actor{
         let! message = mailbox.Receive()
+        printfn "@@@@@@@@@@@@@@@@@@@@@ in tweets parser"
         match message with
         | GetHashTagsAndMentions (userId,tweetId, tweet) ->
             let words = tweet.Split ' '
@@ -110,7 +114,7 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             usersRef <! GetFollowers(userId, tweetId)
             let actorPath =  @"akka://twitterSystem/user/tweetsParserRef"
             let tweetsParserRef = select actorPath twitterSystem
-            usersRef <! GetFollowers(userId, tweetId)
+            //usersRef <! GetFollowers(userId, tweetId)
             tweetsParserRef <! GetHashTagsAndMentions(userId,tweetId, tweet)
             
 
@@ -120,8 +124,27 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let tweet = tweetsMap.[tweetId]
             tweetsSenderRef <! SendTweet(userId, tweet, followerList)
 
+        | ReceiveMentions (userId, tweetId, mentionList) ->
+            let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
+            let tweetsSenderRef = select actorPath twitterSystem
+            let tweet = tweetsMap.[tweetId]
+            tweetsSenderRef <! SendTweet(userId, tweet, mentionList)
+
         | ReceiveHashTags(userId, tweetId, listHashTags) ->
+            // Get followers of that hashtag
+            let actorPath =  @"akka://twitterSystem/user/usersRef"
+            let usersRef = select actorPath twitterSystem
+            for hashTag in listHashTags do
+                //printfn "@@@@Parsed hashtag is %s" hashTag
+                usersRef <! GetFollowersOfHashTag (userId, tweetId, hashTag)
             printfn ""
+
+        | ReceiveFollowersOfHashTag(userId, tweetId, hashTagFollowerList) ->
+            let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
+            let tweetsSenderRef = select actorPath twitterSystem
+            let tweet = tweetsMap.[tweetId]
+            tweetsSenderRef <! SendTweet(userId, tweet, hashTagFollowerList)
+
 
         | ReceiveMentions(userId, tweetId, listMentions) ->
             printfn ""
@@ -191,10 +214,40 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let followerList = userFollowerList.[userIdOfFollowed]
             followerList.Add(userId)
 
+        | FollowHashTag(userId, hashTag) ->
+            if hashTagFollowerList.ContainsKey(hashTag) then
+                let mutable followerList = hashTagFollowerList.[hashTag]
+                followerList.Add(userId)
+            else 
+                let mutable followerList = new List<String>()
+                followerList.Add(userId)
+                hashTagFollowerList.Add(hashTag, followerList)
+            // let mutable followerList = hashTagFollowerList.[hashTag]
+            // if followerList = null then
+            //     followerList <-  new List<String>();
+            //     followerList.Add(userId)
+            //     hashTagFollowerList.Add(hashTag, followerList)
+            // else 
+            //     followerList.Add(userId)
+
+
         | GetFollowers (userId, tweetId) ->
             let actorPath =  @"akka://twitterSystem/user/tweetsRef"
             let tweetsRef = select actorPath twitterSystem
             tweetsRef <! ReceiveFollowers(userId, tweetId, userFollowerList.[userId])
+
+        | GetFollowersOfHashTag (userId, tweetId, hashTag) ->
+            let actorPath =  @"akka://twitterSystem/user/tweetsRef"
+            let tweetsRef = select actorPath twitterSystem
+            if (hashTagFollowerList.ContainsKey(hashTag)) then
+                tweetsRef <! ReceiveFollowersOfHashTag(userId, tweetId, hashTagFollowerList.[hashTag])
+            else 
+                let mutable followerList = new List<String>()
+                // followerList.Add(userId)
+                hashTagFollowerList.Add(hashTag, followerList)
+
+            
+            
 
 
 
@@ -235,13 +288,23 @@ let main argv =
     usersRef <! RegisterAccount("prasad", "prasad")
     usersRef <! RegisterAccount("vaishnavi", "vaishnavi")
     usersRef <! RegisterAccount("siddhi", "siddhi")
+    usersRef <! RegisterAccount("nikhil", "nikhil")
+    Thread.Sleep(1000)
     usersRef <! Login("prasad", "prasad")
     usersRef <! Login("vaishnavi", "vaishnavi")
     usersRef <! Login("siddhi", "siddhi")
+    usersRef <! Login("nikhil", "nikhil")
+    Thread.Sleep(1000)
     usersRef <! Follow("vaishnavi", "prasad")
     usersRef <! Follow("siddhi", "prasad")
-    tweetsRef <! Tweet("prasad", "Hello followers...gooooood Morning")
+    Thread.Sleep(1000)
+    usersRef <! FollowHashTag("nikhil", "#Mumbai")
+    usersRef <! FollowHashTag("prasad", "#Cricket")
+    Thread.Sleep(1000)
+    tweetsRef <! Tweet("prasad", "Hello followers...gooooood Morning. WITHOUT HASHTAGS")
+    tweetsRef <! Tweet("prasad", "Hello followers...gooooood Morning #Mumbai #India")
+    tweetsRef <! Tweet("nikhil", "#Cricket is back #ipl @siddhi" )
     //usersRef <! Logout("prasad")
-    usersRef <! PrintInfo
+    //usersRef <! PrintInfo
     System.Console.ReadKey() |> ignore
     0
