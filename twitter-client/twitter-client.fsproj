@@ -3,12 +3,12 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net5.0</TargetFramework>
-    <RootNamespace>TwitterEngine</RootNamespace>
+    <RootNamespace>twitter_client</RootNamespace>
     <WarnOn>3390;$(WarnOn)</WarnOn>
   </PropertyGroup>
 
   <ItemGroup>
-  <Compile Include="EngineConfig.fs" />
+    <Compile Include="ClientConfig.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

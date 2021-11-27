@@ -14,6 +14,13 @@ open Akka.Actor
 open System.Threading
 open System.Collections.Generic
 
+
+open System
+open Akka.FSharp
+open Akka.Remote
+open Akka.Actor
+open Myconfig
+
 type UsersActorInstructions=
     | RegisterAccount of string*string
     | Test
@@ -228,6 +235,7 @@ let TwitterServer  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     //printfn "abc"
     let rec loop() = actor{
         let! message = mailbox.Receive()
+        printfn "Message received from the other side %A" message
 
         
 
@@ -347,7 +355,7 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
 [<EntryPoint>]
 let main argv =
     let nodes = (int) argv.[0];
-    let twitterSystem = ActorSystem.Create("twitterSystem");
+    let twitterSystem = ActorSystem.Create("twitterSystem", config);
     let twitterServerRef = spawn twitterSystem "twitterServerRef" (TwitterServer twitterSystem);
     let tweetsSenderRef = spawn twitterSystem "tweetsSenderRef" (TweetsSenderActor twitterSystem);
     let usersRef = spawn twitterSystem "usersRef" (UsersActor twitterSystem);

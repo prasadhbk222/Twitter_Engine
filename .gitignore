@@ -2,3 +2,6 @@
 /TwitterEngine/obj/*
 /TwitterEngine/BClient.fsx
 /TwitterEngine/BServer.fsx
+/twitter-client/bin/*
+/twitter-client/obj/*
+
