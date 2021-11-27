@@ -32,13 +32,14 @@ type TweetsActorInstructions=
     | ReceiveFollowersOfHashTag of string*int*List<string> //userid/ //tweetid //listofhashtagfollowers
     | ReceiveHashTags of string*int*List<string>  //userid //tweetid //Listoffollowers
     | ReceiveMentions of string*int*List<string>  //userid //tweetid //Listoffollowers
+    | QueryByHashTagOrMention of string*string   //userid // hashtag or mention
 
 
-// write code to handle received hashtags and mentions
-
+//@@@@@@@@@@@@@@@ write code to query tweets based on hashtags and mentions
 
 type TweetsSenderActorInstruction=
     | SendTweet of string*string*List<String> // tweet and recipientList
+    | Query of List<String>*List<string>*string            // tweet list, tweeter list and userid 
 
 type TweetParser =
     | GetHashTagsAndMentions of string*int*string //tweet
@@ -82,6 +83,15 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet by %s =>%s<= was sent to %s"  index userid tweet item)
             // recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet =>%s<= was sent to %s" index tweet recipientList.[index])
 
+        | Query(tweetList, tweeterList, user) ->
+            // mapping of tweetlist and tweeter list will be done at client according to index
+            let tc = tweetList.Count - 1 
+            for i in 0..tc do
+                printfn "Following tweets were sent to %s : %s : %s"  user tweeterList.[i] tweetList.[i]
+            
+
+        
+
         
 
 
@@ -97,6 +107,8 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     let tweetsMap = new Dictionary<int,string>()
     //let mutable tweetsUserMap = Map.empty  // store tweetid and user(author)
     let tweetsUserMap = new Dictionary<int, string>()
+    let hashTagsTweetMap = new Dictionary<string, List<int>>()  // hashtag tweet ids  map for querying
+    let mentionsTweetMap = new Dictionary<string, List<int>>()  // mentions tweet ids map for querying
     let mutable tweetId = 0;
     let rec loop() = actor{
         let! message = mailbox.Receive()
@@ -129,6 +141,16 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let tweetsSenderRef = select actorPath twitterSystem
             let tweet = tweetsMap.[tweetId]
             tweetsSenderRef <! SendTweet(userId, tweet, mentionList)
+            for  mention in mentionList do
+                //printfn "@@@@Parsed hashtag is %s" hashTag
+                let actualmention =  "@" + mention
+                if mentionsTweetMap.ContainsKey(actualmention) then 
+                    mentionsTweetMap.[actualmention].Add(tweetId)
+                else
+                    let listTweetId = new List<int>()
+                    listTweetId.Add(tweetId)
+                    mentionsTweetMap.Add(actualmention, listTweetId)
+            
 
         | ReceiveHashTags(userId, tweetId, listHashTags) ->
             // Get followers of that hashtag
@@ -136,6 +158,12 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let usersRef = select actorPath twitterSystem
             for hashTag in listHashTags do
                 //printfn "@@@@Parsed hashtag is %s" hashTag
+                if hashTagsTweetMap.ContainsKey(hashTag) then 
+                    hashTagsTweetMap.[hashTag].Add(tweetId)
+                else
+                    let listTweetId = new List<int>()
+                    listTweetId.Add(tweetId)
+                    hashTagsTweetMap.Add(hashTag, listTweetId)
                 usersRef <! GetFollowersOfHashTag (userId, tweetId, hashTag)
             printfn ""
 
@@ -146,8 +174,30 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             tweetsSenderRef <! SendTweet(userId, tweet, hashTagFollowerList)
 
 
-        | ReceiveMentions(userId, tweetId, listMentions) ->
-            printfn ""
+        | QueryByHashTagOrMention (userid, tag) ->
+            let listTweet = new List<String>()
+            let tweetersList = new List<String>()
+            printfn "@@Mentions tweet map %A" mentionsTweetMap
+            if tag.[0] = '@' then
+                if mentionsTweetMap.ContainsKey(tag) then
+                    let listTweetId = mentionsTweetMap.[tag]
+                    for tweetId in listTweetId do
+                        listTweet.Add(tweetsMap.[tweetId])
+                        tweetersList.Add(tweetsUserMap.[tweetId])
+   
+            else if tag.[0] = '#' then
+                if hashTagsTweetMap.ContainsKey(tag) then
+                    let listTweetId = hashTagsTweetMap.[tag]
+                    for tweetId in listTweetId do
+                        listTweet.Add(tweetsMap.[tweetId])
+                        tweetersList.Add(tweetsUserMap.[tweetId])
+
+            let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
+            let tweetsSenderRef = select actorPath twitterSystem
+            let tweet = tweetsMap.[tweetId]
+            tweetsSenderRef <! Query(listTweet, tweetersList, userid)
+
+            
 
 
         | _-> 
@@ -289,11 +339,13 @@ let main argv =
     usersRef <! RegisterAccount("vaishnavi", "vaishnavi")
     usersRef <! RegisterAccount("siddhi", "siddhi")
     usersRef <! RegisterAccount("nikhil", "nikhil")
+    usersRef <! RegisterAccount("arijit", "arijit")
     Thread.Sleep(1000)
     usersRef <! Login("prasad", "prasad")
     usersRef <! Login("vaishnavi", "vaishnavi")
     usersRef <! Login("siddhi", "siddhi")
     usersRef <! Login("nikhil", "nikhil")
+    usersRef <! Login("arijit", "arijit")
     Thread.Sleep(1000)
     usersRef <! Follow("vaishnavi", "prasad")
     usersRef <! Follow("siddhi", "prasad")
@@ -304,6 +356,10 @@ let main argv =
     tweetsRef <! Tweet("prasad", "Hello followers...gooooood Morning. WITHOUT HASHTAGS")
     tweetsRef <! Tweet("prasad", "Hello followers...gooooood Morning #Mumbai #India")
     tweetsRef <! Tweet("nikhil", "#Cricket is back #ipl @siddhi" )
+    Thread.Sleep(1000)
+    tweetsRef <! QueryByHashTagOrMention("arijit", "#Cricket")
+    Thread.Sleep(1000)
+    tweetsRef <! QueryByHashTagOrMention("vaishnavi", "@siddhi")
     //usersRef <! Logout("prasad")
     //usersRef <! PrintInfo
     System.Console.ReadKey() |> ignore
