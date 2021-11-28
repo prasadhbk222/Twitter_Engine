@@ -13,6 +13,7 @@ open Akka.Routing
 open Akka.Actor
 open System.Threading
 open System.Collections.Generic
+open System.Collections
 
 
 open System
@@ -36,20 +37,20 @@ type UsersActorInstructions=
 type TweetsActorInstructions=
     | Tweet of string*string   //userid //tweet
     | ReTweet of string*string*int //userid //copyfromuserid //tweetid
-    | ReceiveFollowers of string*int*List<string> //userid/ //tweetid //listoffollowers
-    | ReceiveFollowersForRetweet of string*int*string*List<String>  //userid //tweetid //originUserid // followerlist
-    | ReceiveFollowersOfHashTag of string*int*List<string> //userid/ //tweetid //listofhashtagfollowers
+    | ReceiveFollowers of string*int*Dictionary<string,string> //userid/ //tweetid //listoffollowers
+    | ReceiveFollowersForRetweet of string*int*string*Dictionary<string,string>  //userid //tweetid //originUserid // followerlist
+    | ReceiveFollowersOfHashTag of string*int*Dictionary<string,string> //userid/ //tweetid //listofhashtagfollowers
     | ReceiveHashTags of string*int*List<string>  //userid //tweetid //Listoffollowers
-    | ReceiveMentions of string*int*List<string>  //userid //tweetid //Listoffollowers
+    | ReceiveMentions of string*int*Dictionary<string,string>  //userid //tweetid //Listoffollowers
     | QueryByHashTagOrMention of string*string   //userid // hashtag or mention
 
 
 //@@@@@@@@@@@@@@@ write code to query tweets based on hashtags and mentions
 
 type TweetsSenderActorInstruction=
-    | SendTweet of string*string*List<String> // tweet and recipientList
+    | SendTweet of string*string*Dictionary<string,string> // tweet and recipientList
     | Query of List<String>*List<string>*string            // tweet list, tweeter list and userid 
-    | SendRetweet of string*string*string*List<String>  //(userId, originUserId, tweet, followerList)
+    | SendRetweet of string*string*string*Dictionary<string,string>  //(userId, originUserId, tweet, followerList)
 
 type TweetParser =
     | GetHashTagsAndMentions of string*int*string //tweet
@@ -63,16 +64,17 @@ let TweetsParserActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
         | GetHashTagsAndMentions (userId,tweetId, tweet) ->
             let words = tweet.Split ' '
             let listHashTags = new List<string>()
-            let listMentions = new List<string>()
+            //let listMentions = new List<string>()
+            let dictMentions = new Dictionary<string, string>()
             for word in words do
                 if word.[0] = '#' then
                     listHashTags.Add(word)
                 if word.[0] = '@' then
-                    listMentions.Add(word.Substring(1))
+                    dictMentions.Add(word.Substring(1), word.Substring(1))
             let actorPath =  @"akka://twitterSystem/user/tweetsRef"
             let tweetsRef = select actorPath twitterSystem
             tweetsRef <! ReceiveHashTags(userId, tweetId, listHashTags)
-            tweetsRef <! ReceiveMentions(userId, tweetId, listMentions)
+            tweetsRef <! ReceiveMentions(userId, tweetId, dictMentions)
 
 
         return! loop()
@@ -84,8 +86,11 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     let rec loop() = actor{
         let! message = mailbox.Receive()
         match message with
-        | SendTweet (userid,tweet, recipientList) ->
-            recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet by %s =>%s<= was sent to %s"  index userid tweet item)
+        | SendTweet (userid,tweet, recipientDict) ->
+            for recipient in recipientDict do
+                printfn "The tweet by %s =>%s<= was sent to %s" userid tweet recipient.Key
+
+            //recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet by %s =>%s<= was sent to %s"  index userid tweet item)
             // recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet =>%s<= was sent to %s" index tweet recipientList.[index])
 
         | Query(tweetList, tweeterList, user) ->
@@ -94,8 +99,9 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             for i in 0..tc do
                 printfn "Following tweets were sent to %s : %s : %s"  user tweeterList.[i] tweetList.[i]
 
-        | SendRetweet (userId, originUserId, tweet, followerList) ->
-            followerList |> Seq.iteri (fun index item -> printfn "%i: The tweet by %s was shared by %s =>%s<= was sent to %s"  index originUserId userId tweet item)
+        | SendRetweet (userId, originUserId, tweet, recipientDict) ->
+            for recipient in recipientDict do
+                printfn "The tweet by %s was retweeted by %s =>%s<= was sent to %s" originUserId  userId tweet recipient.Key
 
         
 
@@ -156,14 +162,14 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let tweet = tweetsMap.[tweetId]
             tweetsSenderRef <! SendRetweet(userId, originUserId, tweet, followerList)
 
-        | ReceiveMentions (userId, tweetId, mentionList) ->
+        | ReceiveMentions (userId, tweetId, mentionDict) ->
             let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
             let tweetsSenderRef = select actorPath twitterSystem
             let tweet = tweetsMap.[tweetId]
-            tweetsSenderRef <! SendTweet(userId, tweet, mentionList)
-            for  mention in mentionList do
+            tweetsSenderRef <! SendTweet(userId, tweet, mentionDict)
+            for  mention in mentionDict do
                 //printfn "@@@@Parsed hashtag is %s" hashTag
-                let actualmention =  "@" + mention
+                let actualmention =  "@" + mention.Key
                 if mentionsTweetMap.ContainsKey(actualmention) then 
                     mentionsTweetMap.[actualmention].Add(tweetId)
                 else
@@ -295,8 +301,8 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     //let mutable userPasswordMap = Map.empty
     let userPasswordMap = new Dictionary<string,string>()
     let mutable activeUsersSet = Set.empty
-    let userFollowerList = new Dictionary<string, List<string>>()
-    let hashTagFollowerList = new Dictionary<string, List<string>>()
+    let userFollowerList = new Dictionary<string, Dictionary<string,string>>()
+    let hashTagFollowerList = new Dictionary<string, Dictionary<string, string>>()
     let rec loop() = actor {
         let! message = mailbox.Receive()
        
@@ -308,9 +314,9 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
         | RegisterAccount (userid, password) ->
             printfn "%s %s" userid password
             // Hash the password later
-            let followerList = new List<string>() 
+            let followerDict = new Dictionary<string,string>() 
             //userFollowerList <- userFollowerList.Add(userid, followerList)
-            userFollowerList.Add(userid, followerList)
+            userFollowerList.Add(userid, followerDict)
             userPasswordMap.Add(userid, password)
             //userPasswordMap <- userPasswordMap.Add(userid, password)
             
@@ -337,20 +343,22 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
 
 
         | Follow (userId, userIdOfFollowed) ->
-            let followerList = userFollowerList.[userIdOfFollowed]
-            followerList.Add(userId)
+            if userFollowerList.ContainsKey(userId) then
+                let followerDict = userFollowerList.[userIdOfFollowed]
+                if  not <| followerDict.ContainsKey(userId) then
+                    followerDict.Add(userId, userId);
 
         
 
 
         | FollowHashTag(userId, hashTag) ->
             if hashTagFollowerList.ContainsKey(hashTag) then
-                let mutable followerList = hashTagFollowerList.[hashTag]
-                followerList.Add(userId)
+                let mutable followerDict = hashTagFollowerList.[hashTag]
+                followerDict.Add(userId, userId)
             else 
-                let mutable followerList = new List<String>()
-                followerList.Add(userId)
-                hashTagFollowerList.Add(hashTag, followerList)
+                let mutable followerDict = new Dictionary<String, String>()
+                followerDict.Add(userId, userId)
+                hashTagFollowerList.Add(hashTag, followerDict)
             // let mutable followerList = hashTagFollowerList.[hashTag]
             // if followerList = null then
             //     followerList <-  new List<String>();
@@ -362,25 +370,41 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
         | GetFollowers (userId, tweetId) ->
             let actorPath =  @"akka://twitterSystem/user/tweetsRef"
             let tweetsRef = select actorPath twitterSystem
-            tweetsRef <! ReceiveFollowers(userId, tweetId, userFollowerList.[userId])
+            if userFollowerList.ContainsKey(userId) then
+                let followerDict = userFollowerList.[userId]
+                tweetsRef <! ReceiveFollowers(userId, tweetId, followerDict)
+            // let followerList = new List<String>();
+            // for entry in followerDict do
+            //     followerList.Add(entry.Key)
+
+                
 
 
 
         | GetFollowersForRetweet (userId, originUserId, tweetId) ->
             let actorPath =  @"akka://twitterSystem/user/tweetsRef"
             let tweetsRef = select actorPath twitterSystem
-            tweetsRef <! ReceiveFollowersForRetweet(userId, tweetId, originUserId, userFollowerList.[userId])
+            let followerDict = userFollowerList.[userId]
+            // let followerList = new List<String>();
+            // for entry in followerDict do
+            //     followerList.Add(entry.Key)
+            tweetsRef <! ReceiveFollowersForRetweet(userId, tweetId, originUserId, followerDict)
 
 
         | GetFollowersOfHashTag (userId, tweetId, hashTag) ->
             let actorPath =  @"akka://twitterSystem/user/tweetsRef"
             let tweetsRef = select actorPath twitterSystem
             if (hashTagFollowerList.ContainsKey(hashTag)) then
-                tweetsRef <! ReceiveFollowersOfHashTag(userId, tweetId, hashTagFollowerList.[hashTag])
+                let followerDict = hashTagFollowerList.[hashTag]
+                // let followerList = new List<String>();
+                // for entry in followerDict do
+                //     followerList.Add(entry.Key)
+                tweetsRef <! ReceiveFollowersOfHashTag(userId, tweetId, followerDict)
             else 
-                let mutable followerList = new List<String>()
+                // let mutable followerList = new List<String>()
+                let followerDict = new Dictionary<string, string>()
                 // followerList.Add(userId)
-                hashTagFollowerList.Add(hashTag, followerList)
+                hashTagFollowerList.Add(hashTag, followerDict)
 
             
             
@@ -422,7 +446,7 @@ let main argv =
     let tweetsParserRef = spawn twitterSystem "tweetsParserRef" (TweetsParserActor twitterSystem);
 
     let twitterServerRef = spawn twitterSystem "twitterServerRef" (TwitterServer usersRef tweetsRef twitterSystem ) ;
-    //usersRef <! RegisterAccount("prasad", "prasad")
+    // usersRef <! RegisterAccount("prasad", "prasad")
     // usersRef <! RegisterAccount("vaishnavi", "vaishnavi")
     // usersRef <! RegisterAccount("siddhi", "siddhi")
     // usersRef <! RegisterAccount("nikhil", "nikhil")

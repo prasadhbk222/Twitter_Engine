@@ -15,7 +15,7 @@ let config =
                     transport-class = ""Akka.Remote.Transport.Helios.HeliosTcpTransport, Akka.Remote""
 		            applied-adapters = []
 		            transport-protocol = tcp
-		            port = 0
+		            port = 4000
 		            hostname = localhost
                 }
             }

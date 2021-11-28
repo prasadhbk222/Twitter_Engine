@@ -64,9 +64,10 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             let username = mailbox.Self.Path.Name
             let id = username.Substring(4) |> int
             let followid = Random().Next(1, id)
-            let followerUserId = "user" + (string)followid
+            if not <| (id = followid) then 
+                let followerUserId = "user" + (string)followid
             //printfn "%s" followerUserId
-            clientConnRef <! ("Follow", username, followerUserId,"")
+                clientConnRef <! ("Follow", username, followerUserId,"")
 
 
         | "Tweet" ->
