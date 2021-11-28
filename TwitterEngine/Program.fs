@@ -231,11 +231,58 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
 
 
 
-let TwitterServer  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
+let TwitterServer  usersRef tweetsRef (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     //printfn "abc"
     let rec loop() = actor{
-        let! message = mailbox.Receive()
-        printfn "Message received from the other side %A" message
+        let! (message:Object) = mailbox.Receive()
+        // printfn "Message received from the other side %A" message
+        let (instruction, arg1, arg2, arg3) : Tuple<String,string,string,string> = downcast message
+        match instruction with 
+        | "RegisterAccount" ->
+            let userid = arg1
+            let password = arg2
+            printfn "%s %s" userid password
+            usersRef <! RegisterAccount(userid, password)
+
+        | "Login" ->
+            let userid = arg1
+            let password = arg2
+            usersRef <! Login(userid, password)
+
+        | "Logout" ->
+            let userid = arg1;
+            usersRef <! Logout(userid)
+
+        | "Follow" ->
+            let userId = arg1
+            let userIdOfFollowed = arg2
+            usersRef <! Follow(userId, userIdOfFollowed)
+
+        | "FollowHashTag" ->
+            let userId = arg1
+            let hashTag = arg2
+            usersRef <! FollowHashTag(userId, hashTag)
+
+        | "Tweet" ->
+            let userId = arg1
+            let tweet = arg2
+            tweetsRef <! Tweet(userId, tweet)
+
+        | "ReTweet" ->
+            let userId = arg1
+            let originUserId = arg2
+            let tweetId = (int)arg3
+            tweetsRef <! ReTweet(userId, originUserId, tweetId)
+
+        | "QueryByHashTagOrMention" ->
+            let userId = arg1
+            let tag = arg2
+            tweetsRef <! QueryByHashTagOrMention(userId, tag) 
+
+        
+
+        
+             
 
         
 
@@ -252,7 +299,10 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     let hashTagFollowerList = new Dictionary<string, List<string>>()
     let rec loop() = actor {
         let! message = mailbox.Receive()
+       
         let sender = mailbox.Sender()
+       
+       
 
         match message with 
         | RegisterAccount (userid, password) ->
@@ -264,7 +314,7 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             userPasswordMap.Add(userid, password)
             //userPasswordMap <- userPasswordMap.Add(userid, password)
             
- 
+
 
         | Login (userid, password) ->
             if userPasswordMap.ContainsKey(userid) then
@@ -276,14 +326,22 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
                     printfn "Wrong password"
             else 
                 printfn "Username doesn't exist"
+        
+
 
         | Logout userid ->
             activeUsersSet <- activeUsersSet.Remove(userid)
             // destroy token at the client side
 
+        
+
+
         | Follow (userId, userIdOfFollowed) ->
             let followerList = userFollowerList.[userIdOfFollowed]
             followerList.Add(userId)
+
+        
+
 
         | FollowHashTag(userId, hashTag) ->
             if hashTagFollowerList.ContainsKey(hashTag) then
@@ -301,11 +359,12 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             // else 
             //     followerList.Add(userId)
 
-
         | GetFollowers (userId, tweetId) ->
             let actorPath =  @"akka://twitterSystem/user/tweetsRef"
             let tweetsRef = select actorPath twitterSystem
             tweetsRef <! ReceiveFollowers(userId, tweetId, userFollowerList.[userId])
+
+
 
         | GetFollowersForRetweet (userId, originUserId, tweetId) ->
             let actorPath =  @"akka://twitterSystem/user/tweetsRef"
@@ -356,42 +415,43 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
 let main argv =
     let nodes = (int) argv.[0];
     let twitterSystem = ActorSystem.Create("twitterSystem", config);
-    let twitterServerRef = spawn twitterSystem "twitterServerRef" (TwitterServer twitterSystem);
+    
     let tweetsSenderRef = spawn twitterSystem "tweetsSenderRef" (TweetsSenderActor twitterSystem);
     let usersRef = spawn twitterSystem "usersRef" (UsersActor twitterSystem);
     let tweetsRef = spawn twitterSystem "tweetsRef" (TweetsActor twitterSystem);
     let tweetsParserRef = spawn twitterSystem "tweetsParserRef" (TweetsParserActor twitterSystem);
 
-    usersRef <! RegisterAccount("prasad", "prasad")
-    usersRef <! RegisterAccount("vaishnavi", "vaishnavi")
-    usersRef <! RegisterAccount("siddhi", "siddhi")
-    usersRef <! RegisterAccount("nikhil", "nikhil")
-    usersRef <! RegisterAccount("arijit", "arijit")
-    Thread.Sleep(1000)
-    usersRef <! Login("prasad", "prasad")
-    usersRef <! Login("vaishnavi", "vaishnavi")
-    usersRef <! Login("siddhi", "siddhi")
-    usersRef <! Login("nikhil", "nikhil")
-    usersRef <! Login("arijit", "arijit")
-    Thread.Sleep(1000)
-    usersRef <! Follow("vaishnavi", "prasad")
-    usersRef <! Follow("siddhi", "prasad")
-    usersRef <! Follow ("arijit", "vaishnavi")
-    usersRef <! Follow ("siddhi", "vaishnavi")
-    Thread.Sleep(1000)
-    usersRef <! FollowHashTag("nikhil", "#Mumbai")
-    usersRef <! FollowHashTag("prasad", "#Cricket")
-    Thread.Sleep(1000)
-    tweetsRef <! Tweet("prasad", "Hello followers...gooooood Morning. WITHOUT HASHTAGS")
-    tweetsRef <! Tweet("prasad", "Hello followers...gooooood Morning #Mumbai #India")
-    Thread.Sleep(1000)
-    tweetsRef <! Tweet("nikhil", "#Cricket is back #ipl @siddhi" )
-    Thread.Sleep(1000)
-    tweetsRef <! QueryByHashTagOrMention("arijit", "#Cricket")
-    Thread.Sleep(1000)
-    tweetsRef <! QueryByHashTagOrMention("vaishnavi", "@siddhi")
-    Thread.Sleep(1000)
-    tweetsRef <! ReTweet("vaishnavi", "nikhil", 3);
+    let twitterServerRef = spawn twitterSystem "twitterServerRef" (TwitterServer usersRef tweetsRef twitterSystem ) ;
+    //usersRef <! RegisterAccount("prasad", "prasad")
+    // usersRef <! RegisterAccount("vaishnavi", "vaishnavi")
+    // usersRef <! RegisterAccount("siddhi", "siddhi")
+    // usersRef <! RegisterAccount("nikhil", "nikhil")
+    // usersRef <! RegisterAccount("arijit", "arijit")
+    // Thread.Sleep(1000)
+    // usersRef <! Login("prasad", "prasad")
+    // usersRef <! Login("vaishnavi", "vaishnavi")
+    // usersRef <! Login("siddhi", "siddhi")
+    // usersRef <! Login("nikhil", "nikhil")
+    // usersRef <! Login("arijit", "arijit")
+    // Thread.Sleep(1000)
+    // usersRef <! Follow("vaishnavi", "prasad")
+    // usersRef <! Follow("siddhi", "prasad")
+    // usersRef <! Follow ("arijit", "vaishnavi")
+    // usersRef <! Follow ("siddhi", "vaishnavi")
+    // Thread.Sleep(1000)
+    // usersRef <! FollowHashTag("nikhil", "#Mumbai")
+    // usersRef <! FollowHashTag("prasad", "#Cricket")
+    // Thread.Sleep(1000)
+    // tweetsRef <! Tweet("prasad", "Hello followers...gooooood Morning. WITHOUT HASHTAGS")
+    // tweetsRef <! Tweet("prasad", "Hello followers...gooooood Morning #Mumbai #India")
+    // Thread.Sleep(1000)
+    // tweetsRef <! Tweet("nikhil", "#Cricket is back #ipl @siddhi" )
+    // Thread.Sleep(1000)
+    // tweetsRef <! QueryByHashTagOrMention("arijit", "#Cricket")
+    // Thread.Sleep(1000)
+    // tweetsRef <! QueryByHashTagOrMention("vaishnavi", "@siddhi")
+    // Thread.Sleep(1000)
+    // tweetsRef <! ReTweet("vaishnavi", "nikhil", 3);
     //usersRef <! Logout("prasad")
     //usersRef <! PrintInfo
     System.Console.ReadKey() |> ignore
