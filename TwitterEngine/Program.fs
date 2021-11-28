@@ -83,11 +83,16 @@ let TweetsParserActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
 
 let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     //printfn "abc"
+    let url = "akka.tcp://clientSystem@localhost:4000/user/twitterServerRef"
+    
     let rec loop() = actor{
         let! message = mailbox.Receive()
         match message with
         | SendTweet (userid,tweet, recipientDict) ->
             for recipient in recipientDict do
+                let url = "akka.tcp://clientSystem@localhost:4000/user/" + recipient.Key
+                let userRef = select url twitterSystem
+                userRef <! ("ReceiveTweet", sprintf "The tweet by %s =>%s<= was sent to %s" userid tweet recipient.Key , "", new List<String>(), new List<String>())
                 printfn "The tweet by %s =>%s<= was sent to %s" userid tweet recipient.Key
 
             //recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet by %s =>%s<= was sent to %s"  index userid tweet item)

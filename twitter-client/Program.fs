@@ -7,6 +7,7 @@ open Akka.Actor
 open Myconfig
 
 open System.Threading
+open System.Collections.Generic
 
 // Instructions
 type ConnectionIns = 
@@ -51,13 +52,15 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
     let clientConnRef = select url clientSystem
 
     let rec loop() = actor{
-        let! message = mailbox.Receive();
-        match message with
+        let! (message:Object) = mailbox.Receive()
+        // printfn "Message received from the other side %A" message
+        let (instruction, arg1, arg2, arg3, arg4) : Tuple<String,string,string,List<String>, List<String>> = downcast message
+        match instruction with
         | "Start" ->
             printfn "%s" mailbox.Self.Path.Name
             clientConnRef <! ("RegisterAccount",mailbox.Self.Path.Name, mailbox.Self.Path.Name,"")
-            clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(1000.0),TimeSpan.FromMilliseconds(1000.0),mailbox.Self, "Follow")
-            clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(2000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, "Tweet")
+            clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(1000.0),TimeSpan.FromMilliseconds(1000.0),mailbox.Self, ("Follow", "","", new List<String>(), new List<String>()))
+            clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(2000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("Tweet", "","", new List<String>(), new List<String>()))
 
 
         | "Follow" ->
@@ -72,6 +75,9 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
 
         | "Tweet" ->
             clientConnRef <! ("Tweet", mailbox.Self.Path.Name, "Hello followers...gooooood Morning. WITHOUT HASHTAGS","")
+
+        | "ReceiveTweet" ->
+            printfn "%s received tweet : %s" mailbox.Self.Path.Name arg1 
 
 
             
@@ -98,7 +104,7 @@ let ClientConn numOfUsers (clientSystem:ActorSystem)  (mailbox: Actor<_>) =
         | "SpawnUsers" ->
             userId <- "user" + (string)userNumber
             let userRef =  spawn clientSystem userId (UserActor userId userId clientSystem)
-            userRef <! "Start"
+            userRef <! ("Start", "","", new List<String>(), new List<String>())
             
             if userNumber < numOfUsers then
                 userNumber <- userNumber + 1
@@ -160,7 +166,7 @@ let ClientConn numOfUsers (clientSystem:ActorSystem)  (mailbox: Actor<_>) =
 [<EntryPoint>]
 let main argv =
     let numOfUsers = (int) argv.[0]
-    let clientSystem  = System.create "ClientSystem" config // Client System Initialization
+    let clientSystem  = System.create "clientSystem" config // Client System Initialization
     let clientConnRef = spawn clientSystem "clientConnRef" (ClientConn numOfUsers clientSystem ) // Connection Actor Initialization
     
     clientConnRef <! "SpawnUsers"
