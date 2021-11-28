@@ -77,7 +77,19 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             clientConnRef <! ("Tweet", mailbox.Self.Path.Name, "Hello followers...gooooood Morning. WITHOUT HASHTAGS","")
 
         | "ReceiveTweet" ->
-            printfn "%s received tweet : %s" mailbox.Self.Path.Name arg1 
+            printfn "%s received tweet : %s" mailbox.Self.Path.Name arg1
+
+        | "ReceiveRetweet" ->
+            let originUserId = arg2
+            printfn "%s received retweet by %s : %s" originUserId mailbox.Self.Path.Name arg1
+
+        
+        | "ReceiveQueryResult" ->
+            let tweetersList = arg3
+            let tweetList = arg4
+            let tc = tweetList.Count - 1
+            for i in 0..tc do
+                printfn "Following tweets were sent to %s : %s : %s"  mailbox.Self.Path.Name tweetersList.[i] tweetList.[i]
 
 
             

@@ -98,14 +98,21 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             //recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet by %s =>%s<= was sent to %s"  index userid tweet item)
             // recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet =>%s<= was sent to %s" index tweet recipientList.[index])
 
-        | Query(tweetList, tweeterList, user) ->
+        | Query(tweetList, tweetersList, user) ->
             // mapping of tweetlist and tweeter list will be done at client according to index
-            let tc = tweetList.Count - 1 
+            let url = "akka.tcp://clientSystem@localhost:4000/user/" + user
+            let userRef = select url twitterSystem
+            userRef <! ("ReceiveQueryResult","","", tweetersList, tweetList)
+            let tc = tweetList.Count - 1
             for i in 0..tc do
-                printfn "Following tweets were sent to %s : %s : %s"  user tweeterList.[i] tweetList.[i]
+                printfn "Following tweets were sent to %s : %s : %s"  user tweetersList.[i] tweetList.[i]
 
         | SendRetweet (userId, originUserId, tweet, recipientDict) ->
             for recipient in recipientDict do
+                let url = "akka.tcp://clientSystem@localhost:4000/user/" + recipient.Key
+                let userRef = select url twitterSystem
+                userRef <! ("ReceiveReTweet", sprintf "The tweet by %s was retweeted by %s =>%s<= was sent to %s" originUserId  userId tweet recipient.Key
+ , originUserId, new List<String>(), new List<String>())
                 printfn "The tweet by %s was retweeted by %s =>%s<= was sent to %s" originUserId  userId tweet recipient.Key
 
         
