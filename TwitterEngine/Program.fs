@@ -50,10 +50,21 @@ type TweetsActorInstructions=
 type TweetsSenderActorInstruction=
     | SendTweet of string*int*string*Dictionary<string,string> // tweet and recipientList
     | Query of List<String>*List<string>*string*string           // tweet list, tweeter list, userid , tag
-    | SendRetweet of string*string*string*Dictionary<string,string>  //(userId, originUserId, tweet, followerList)
+    | SendRetweet of string*string*string*Dictionary<string,string>*int  //(userId, originUserId, tweet, followerList)
+    | SendLoginToken of string*string   //userid //success or failure
+    | SendLogout of string
 
 type TweetParser =
     | GetHashTagsAndMentions of string*int*string //tweet
+
+let hashFunction (hashInput: string) =
+    let hashOutput=
+        hashInput
+        |> Encoding.UTF8.GetBytes
+        |> (new SHA256Managed()).ComputeHash
+        |> Array.map (fun (x : byte) -> String.Format("{0:X2}", x))
+        |> String.concat ""
+    hashOutput
 
 let TweetsParserActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     //printfn "abc"
@@ -107,17 +118,30 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             for i in 0..tc do
                 printfn "User %s searched for tag %s : %s : %s"  user tag tweetersList.[i] tweetList.[i]
 
-        | SendRetweet (userId, originUserId, tweet, recipientDict) ->
+        | SendRetweet (userId, originUserId, tweet, recipientDict, tweetId) ->
             for recipient in recipientDict do
                 let url = "akka.tcp://clientSystem@localhost:4000/user/" + recipient.Key
                 let userRef = select url twitterSystem
-                userRef <! ("ReceiveReTweet", sprintf "The tweet by %s was retweeted by %s =>%s<= was sent to %s" originUserId  userId tweet recipient.Key
+                userRef <! ("ReceiveReTweet", sprintf "%s:The tweet by %s was retweeted by %s =>%s<= was sent to  %s" ((string)tweetId) originUserId  userId tweet recipient.Key 
  , originUserId, new List<String>(), new List<String>())
-                printfn "The tweet by %s was retweeted by %s =>%s<= was sent to %s" originUserId  userId tweet recipient.Key
+                printfn "The tweet by %s was retweeted by %s =>%s<= was sent to %s " originUserId  userId tweet recipient.Key 
 
         
 
-        
+        | SendLoginToken (userId, loginStatus) ->
+            printfn "In SendLogin: %s" userId
+            let url = "akka.tcp://clientSystem@localhost:4000/user/" + userId
+            let userRef = select url twitterSystem
+            userRef <! ("ReceiveLoginAck",userId,loginStatus, new List<String>(), new List<String>())
+            
+
+        | SendLogout (userId) ->
+            let url = "akka.tcp://clientSystem@localhost:4000/user/" + userId
+            let userRef = select url twitterSystem
+            userRef <! ("ReceiveLogoutAck",userId,"", new List<String>(), new List<String>())
+            
+
+
 
 
         return! loop()
@@ -173,7 +197,7 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
             let tweetsSenderRef = select actorPath twitterSystem
             let tweet = tweetsMap.[tweetId]
-            tweetsSenderRef <! SendRetweet(userId, originUserId, tweet, followerList)
+            tweetsSenderRef <! SendRetweet(userId, originUserId, tweet, followerList, tweetId)
 
         | ReceiveMentions (userId, tweetId, mentionDict) ->
             let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
@@ -331,26 +355,39 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let followerDict = new Dictionary<string,string>() 
             //userFollowerList <- userFollowerList.Add(userid, followerList)
             userFollowerList.Add(userid, followerDict)
-            userPasswordMap.Add(userid, password)
+            userPasswordMap.Add(userid, hashFunction password)
             //userPasswordMap <- userPasswordMap.Add(userid, password)
             
 
 
         | Login (userid, password) ->
+            let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
+            let tweetsSenderRef = select actorPath twitterSystem
             if userPasswordMap.ContainsKey(userid) then
-                if (password = userPasswordMap.[userid]) then
+                if (hashFunction password = userPasswordMap.[userid]) then
                     printfn "Welcome %s!! Login Successful"  userid
                     activeUsersSet <- activeUsersSet.Add(userid)
+                    printfn "Later Welcome %s!! Login Successful"  userid
+                    tweetsSenderRef <! SendLoginToken(userid, "success")
+
+
                     // send a token without which user cannot do further actions
-                else 
+                else
+                    tweetsSenderRef <! SendLoginToken(userid, "failure")
                     printfn "Wrong password"
-            else 
+            else
+                tweetsSenderRef <! SendLoginToken(userid, "failure")
                 printfn "Username doesn't exist"
         
 
 
         | Logout userid ->
+            let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
+            let tweetsSenderRef = select actorPath twitterSystem
             activeUsersSet <- activeUsersSet.Remove(userid)
+            printfn "################################################################################################################################%A" activeUsersSet.Count
+            tweetsSenderRef <! SendLogout(userid)
+
             // destroy token at the client side
 
         

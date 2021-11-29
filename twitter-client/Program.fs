@@ -55,6 +55,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
     let queueTweets = new Queue<String>()
     let queueSize = 10;
     let embedWordList = ["#Dosp"; "blackfriday"; "#GatorNights"; "Dosp"; "#blackfriday"; "#GOGATORS"; "DBMS"; "#orangeandblue"; "#DBMS"; "GOGATORS"] 
+    let mutable loggedIn:Boolean = false  
 
     let rec loop() = actor{
         let! (message:Object) = mailbox.Receive()
@@ -64,52 +65,82 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
         | "Start" ->
             printfn "%s" mailbox.Self.Path.Name
             clientConnRef <! ("RegisterAccount",mailbox.Self.Path.Name, mailbox.Self.Path.Name,"")
+            clientSystem.Scheduler.ScheduleTellOnce(TimeSpan.FromMilliseconds(100.0),mailbox.Self, ("Login", "", "", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(1000.0),TimeSpan.FromMilliseconds(1000.0),mailbox.Self, ("Follow", "","", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(2000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("Tweet", "","", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(3000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("ReTweet", "","", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(3000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("QueryByHashTagOrMention", "","", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(1000.0),TimeSpan.FromMilliseconds(1000.0),mailbox.Self, ("FollowHashTag", "","", new List<String>(), new List<String>()))
+            
+            
 
+        // clientConnRef <! Login("prasad", "prasad")
+        | "Login" ->
+            clientConnRef <! ("Login", mailbox.Self.Path.Name, mailbox.Self.Path.Name, "")
 
-
+        | "Logout" ->
+            if loggedIn = true then
+                clientConnRef <! ("Logout", mailbox.Self.Path.Name, mailbox.Self.Path.Name, "")
+                clientSystem.Scheduler.ScheduleTellOnce(TimeSpan.FromMilliseconds(10000.0),mailbox.Self, ("Login", mailbox.Self.Path.Name, mailbox.Self.Path.Name, new List<string>() , new List<string>()))
+            
 
         | "Follow" ->
-            let username = mailbox.Self.Path.Name
-            let id = username.Substring(4) |> int
-            let followid = Random().Next(1, id)
-            if not <| (id = followid) then 
-                let followerUserId = "user" + (string)followid
-            //printfn "%s" followerUserId
-                clientConnRef <! ("Follow", username, followerUserId,"")
+            if loggedIn then
+                let username = mailbox.Self.Path.Name
+                let id = username.Substring(4) |> int
+                let followid = Random().Next(1, id)
+                if not <| (id = followid) then 
+                    let followerUserId = "user" + (string)followid
+                //printfn "%s" followerUserId
+                    clientConnRef <! ("Follow", username, followerUserId,"")
 
         //clientConnRef <! ("FollowHashTag","nikhil", "#Mumbai","")
         | "FollowHashTag" ->
-            let index = Random().Next(0, embedWordList.Length - 1)
-            let mutable embedWord = embedWordList.[index]
-            if  not <| (embedWord.[0] = '#') then
-                embedWord <- "#" + embedWord
-            clientConnRef <! ("FollowHashTag",mailbox.Self.Path.Name, embedWord,"")
+            if loggedIn then
+                let index = Random().Next(0, embedWordList.Length - 1)
+                let mutable embedWord = embedWordList.[index]
+                if  not <| (embedWord.[0] = '#') then
+                    embedWord <- "#" + embedWord
+                clientConnRef <! ("FollowHashTag",mailbox.Self.Path.Name, embedWord,"")
 
 
         | "Tweet" ->
-            let index = Random().Next(0, embedWordList.Length - 1)
-            let embedWord = embedWordList.[index]
-            let mutable mention = "abc"
-            if index < embedWordList.Length/2 then 
-                let username = mailbox.Self.Path.Name
-                let id = username.Substring(4) |> int
-                let mentionId = Random().Next(1, id)
-                if not <| (id = mentionId) then 
-                    mention <- "@user" + (string)mentionId
-            clientConnRef <! ("Tweet", mailbox.Self.Path.Name, sprintf "Random hashtag tweet %s and %s" embedWord mention,"")
+            if loggedIn then
+                let index = Random().Next(0, embedWordList.Length - 1)
+                let embedWord = embedWordList.[index]
+                let mutable mention = "abc"
+                if index < embedWordList.Length/2 then 
+                    let username = mailbox.Self.Path.Name
+                    let id = username.Substring(4) |> int
+                    let mentionId = Random().Next(1, id)
+                    if not <| (id = mentionId) then 
+                        mention <- "@user" + (string)mentionId
+                clientConnRef <! ("Tweet", mailbox.Self.Path.Name, sprintf "Random hashtag tweet %s and %s" embedWord mention,"")
 
         | "ReTweet" ->
-            let currentQueueLength = queueTweetIds.Count
-            if currentQueueLength > 1 then
-                let tweetIdIndex = Random().Next(0, queueTweetIds.Count)
-                let tweetIdArray = queueTweetIds.ToArray()
-                let tweetId = tweetIdArray.[tweetIdIndex]
-                clientConnRef <! ("ReTweet", mailbox.Self.Path.Name, (string)tweetId, "")
+            if loggedIn then
+                let currentQueueLength = queueTweetIds.Count
+                if currentQueueLength > 1 then
+                    let tweetIdIndex = Random().Next(0, queueTweetIds.Count)
+                    let tweetIdArray = queueTweetIds.ToArray()
+                    let tweetId = tweetIdArray.[tweetIdIndex]
+                    clientConnRef <! ("ReTweet", mailbox.Self.Path.Name, (string)tweetId, "")
+
+        | "ReceiveLoginAck" ->
+            printfn "LoginAck rcved: %s" mailbox.Self.Path.Name
+            let userId = arg1
+            let statusMsg = arg2
+            if statusMsg = "success" then
+                loggedIn <- true
+
+                clientSystem.Scheduler.ScheduleTellOnce(TimeSpan.FromMilliseconds(10000.0),mailbox.Self, ("Logout", mailbox.Self.Path.Name, mailbox.Self.Path.Name, new List<string>(), new List<string>()))
+            else
+                loggedIn <- false
+                clientSystem.Scheduler.ScheduleTellOnce(TimeSpan.FromMilliseconds(1000.0),mailbox.Self, ("Login", mailbox.Self.Path.Name, mailbox.Self.Path.Name, new List<string>(), new List<string>()))
+
+        | "ReceiveLogoutAck" ->
+            loggedIn <- false
+            clientSystem.Scheduler.ScheduleTellOnce(TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("Login", mailbox.Self.Path.Name, mailbox.Self.Path.Name, new List<string>(), new List<string>()))
 
         | "ReceiveTweet" ->
             let tweetId = (int) arg2
@@ -120,44 +151,50 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             queueTweetIds.Enqueue(tweetId)
             queueTweets.Enqueue(tweet)
 
-            printfn "%s received tweet : %s having tweetid :%s " mailbox.Self.Path.Name arg1 arg2
+            if loggedIn then
+                printfn "%s received tweet : %s having tweetid :%s " mailbox.Self.Path.Name arg1 arg2
 
         | "ReceiveReTweet" ->
+            let tweetInfo = arg1.Split ':'
+            let tweetId  = (int)(tweetInfo.[0])
+            let tweet = tweetInfo.[1]
             let originUserId = arg2
-            printfn "%s received retweet by %s : %s" originUserId mailbox.Self.Path.Name arg1
+            if queueTweetIds.Count > queueSize then
+                queueTweetIds.Dequeue()
+                queueTweets.Dequeue()
+            queueTweetIds.Enqueue(tweetId)
+            queueTweets.Enqueue(tweet)
+            if loggedIn then
+                printfn "%s received retweet by %s : %s" originUserId mailbox.Self.Path.Name tweet
 
         //clientConnRef <! ("QueryByHashTagOrMention", "arijit", "#Cricket", "")
         | "QueryByHashTagOrMention" ->
-            let index = Random().Next(0, embedWordList.Length - 1)
-            let mutable embedWord = embedWordList.[index]
-            if  not <| (embedWord.[0] = '#') then
-                embedWord <- "#" + embedWord
-            if index < embedWordList.Length/2 then 
-                let username = mailbox.Self.Path.Name
-                let id = username.Substring(4) |> int
-                let mentionId = Random().Next(1, id)
-                if not <| (id = mentionId) then 
-                    embedWord <- "@user" + (string)mentionId
-            clientConnRef <! ("QueryByHashTagOrMention", mailbox.Self.Path.Name, embedWord, "")
+            if loggedIn then
+                let index = Random().Next(0, embedWordList.Length - 1)
+                let mutable embedWord = embedWordList.[index]
+                if  not <| (embedWord.[0] = '#') then
+                    embedWord <- "#" + embedWord
+                if index < embedWordList.Length/2 then 
+                    let username = mailbox.Self.Path.Name
+                    let id = username.Substring(4) |> int
+                    let mentionId = Random().Next(1, id)
+                    if not <| (id = mentionId) then 
+                        embedWord <- "@user" + (string)mentionId
+                clientConnRef <! ("QueryByHashTagOrMention", mailbox.Self.Path.Name, embedWord, "")
 
         
         | "ReceiveQueryResult" ->
-            let tag = arg1
-            let tweetersList = arg3
-            let tweetList = arg4
-            let tc = tweetList.Count - 1
-            let mutable output = ""
-            printfn "User %s searched for tag %s"  mailbox.Self.Path.Name tag
-            for i in 0..tc do
-                output <- output + tweetersList.[i] + tweetList.[i] + "\n"
-                //printfn "User %s searched for tag %s : %s : %s"  mailbox.Self.Path.Name tag tweetersList.[i] tweetList.[i]
-            printfn "User %s searched for tag %s \n Output : %s"  mailbox.Self.Path.Name tag output
-
-            
-            
-           
-            
-
+            if loggedIn then
+                let tag = arg1
+                let tweetersList = arg3
+                let tweetList = arg4
+                let tc = tweetList.Count - 1
+                let mutable output = ""
+                printfn "User %s searched for tag %s"  mailbox.Self.Path.Name tag
+                for i in 0..tc do
+                    output <- output + tweetersList.[i] + tweetList.[i] + "\n"
+                    //printfn "User %s searched for tag %s : %s : %s"  mailbox.Self.Path.Name tag tweetersList.[i] tweetList.[i]
+                printfn "User %s searched for tag %s \n Output : %s"  mailbox.Self.Path.Name tag output
 
 
         return! loop()
