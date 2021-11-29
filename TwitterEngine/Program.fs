@@ -36,7 +36,7 @@ type UsersActorInstructions=
  
 type TweetsActorInstructions=
     | Tweet of string*string   //userid //tweet
-    | ReTweet of string*string*int //userid //copyfromuserid //tweetid
+    | ReTweet of string*int //userid //copyfromuserid //tweetid
     | ReceiveFollowers of string*int*Dictionary<string,string> //userid/ //tweetid //listoffollowers
     | ReceiveFollowersForRetweet of string*int*string*Dictionary<string,string>  //userid //tweetid //originUserid // followerlist
     | ReceiveFollowersOfHashTag of string*int*Dictionary<string,string> //userid/ //tweetid //listofhashtagfollowers
@@ -48,7 +48,7 @@ type TweetsActorInstructions=
 //@@@@@@@@@@@@@@@ write code to query tweets based on hashtags and mentions
 
 type TweetsSenderActorInstruction=
-    | SendTweet of string*string*Dictionary<string,string> // tweet and recipientList
+    | SendTweet of string*int*string*Dictionary<string,string> // tweet and recipientList
     | Query of List<String>*List<string>*string            // tweet list, tweeter list and userid 
     | SendRetweet of string*string*string*Dictionary<string,string>  //(userId, originUserId, tweet, followerList)
 
@@ -88,12 +88,12 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     let rec loop() = actor{
         let! message = mailbox.Receive()
         match message with
-        | SendTweet (userid,tweet, recipientDict) ->
+        | SendTweet (userid, tweetId, tweet, recipientDict) ->
             for recipient in recipientDict do
                 let url = "akka.tcp://clientSystem@localhost:4000/user/" + recipient.Key
                 let userRef = select url twitterSystem
-                userRef <! ("ReceiveTweet", sprintf "The tweet by %s =>%s<= was sent to %s" userid tweet recipient.Key , "", new List<String>(), new List<String>())
-                printfn "The tweet by %s =>%s<= was sent to %s" userid tweet recipient.Key
+                userRef <! ("ReceiveTweet", sprintf "The tweet by %s =>%s<=having tweetId : %i was sent to %s" userid tweet tweetId recipient.Key , (string)tweetId, new List<String>(), new List<String>())
+                printfn "The tweet by %s =>%s<=having tweetId : %i was sent to %s" userid tweet tweetId recipient.Key
 
             //recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet by %s =>%s<= was sent to %s"  index userid tweet item)
             // recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet =>%s<= was sent to %s" index tweet recipientList.[index])
@@ -154,8 +154,9 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             //usersRef <! GetFollowers(userId, tweetId)
             tweetsParserRef <! GetHashTagsAndMentions(userId,tweetId, tweet)
 
-        | ReTweet (userId, originUserId, tweetId) ->
+        | ReTweet (userId, tweetId) ->
             let tweetmsg = tweetsMap.[tweetId]
+            let originUserId = tweetsUserMap.[tweetId]
             let actorPath =  @"akka://twitterSystem/user/usersRef"
             let usersRef = select actorPath twitterSystem
             usersRef <! GetFollowersForRetweet(userId, originUserId, tweetId)
@@ -166,7 +167,7 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
             let tweetsSenderRef = select actorPath twitterSystem
             let tweet = tweetsMap.[tweetId]
-            tweetsSenderRef <! SendTweet(userId, tweet, followerList)
+            tweetsSenderRef <! SendTweet(userId, tweetId, tweet, followerList)
 
         | ReceiveFollowersForRetweet (userId, tweetId, originUserId, followerList) ->
             let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
@@ -178,7 +179,7 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
             let tweetsSenderRef = select actorPath twitterSystem
             let tweet = tweetsMap.[tweetId]
-            tweetsSenderRef <! SendTweet(userId, tweet, mentionDict)
+            tweetsSenderRef <! SendTweet(userId, tweetId, tweet, mentionDict)
             for  mention in mentionDict do
                 //printfn "@@@@Parsed hashtag is %s" hashTag
                 let actualmention =  "@" + mention.Key
@@ -209,7 +210,7 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
             let tweetsSenderRef = select actorPath twitterSystem
             let tweet = tweetsMap.[tweetId]
-            tweetsSenderRef <! SendTweet(userId, tweet, hashTagFollowerList)
+            tweetsSenderRef <! SendTweet(userId, tweetId, tweet, hashTagFollowerList)
 
 
         | QueryByHashTagOrMention (userid, tag) ->
@@ -288,9 +289,10 @@ let TwitterServer  usersRef tweetsRef (twitterSystem : ActorSystem) (mailbox: Ac
 
         | "ReTweet" ->
             let userId = arg1
-            let originUserId = arg2
-            let tweetId = (int)arg3
-            tweetsRef <! ReTweet(userId, originUserId, tweetId)
+            //let originUserId = arg2
+            let tweetId = (int)arg2
+            printfn "IN REWEET @@@ tweetid is %i" tweetId
+            tweetsRef <! ReTweet(userId, tweetId)
 
         | "QueryByHashTagOrMention" ->
             let userId = arg1

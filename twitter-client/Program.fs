@@ -50,6 +50,10 @@ type TweetParser =
 let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mailbox: Actor<_>)=
     let url = "akka.tcp://twitterSystem@localhost:8080/user/twitterServerRef"
     let clientConnRef = select url clientSystem
+    //let tweetMap = new Dictionary<int, String>()
+    let queueTweetIds = new Queue<int>()
+    let queueTweets = new Queue<String>()
+    let queueSize = 10;
 
     let rec loop() = actor{
         let! (message:Object) = mailbox.Receive()
@@ -61,6 +65,8 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             clientConnRef <! ("RegisterAccount",mailbox.Self.Path.Name, mailbox.Self.Path.Name,"")
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(1000.0),TimeSpan.FromMilliseconds(1000.0),mailbox.Self, ("Follow", "","", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(2000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("Tweet", "","", new List<String>(), new List<String>()))
+            clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(3000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("ReTweet", "","", new List<String>(), new List<String>()))
+
 
 
         | "Follow" ->
@@ -76,10 +82,26 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
         | "Tweet" ->
             clientConnRef <! ("Tweet", mailbox.Self.Path.Name, "Hello followers...gooooood Morning. WITHOUT HASHTAGS","")
 
-        | "ReceiveTweet" ->
-            printfn "%s received tweet : %s" mailbox.Self.Path.Name arg1
+        | "ReTweet" ->
+            let currentQueueLength = queueTweetIds.Count
+            if currentQueueLength > 1 then
+                let tweetIdIndex = Random().Next(0, queueTweetIds.Count)
+                let tweetIdArray = queueTweetIds.ToArray()
+                let tweetId = tweetIdArray.[tweetIdIndex]
+                clientConnRef <! ("ReTweet", mailbox.Self.Path.Name, (string)tweetId, "")
 
-        | "ReceiveRetweet" ->
+        | "ReceiveTweet" ->
+            let tweetId = (int) arg2
+            let tweet = arg1
+            if queueTweetIds.Count > queueSize then
+                queueTweetIds.Dequeue()
+                queueTweets.Dequeue()
+            queueTweetIds.Enqueue(tweetId)
+            queueTweets.Enqueue(tweet)
+
+            printfn "%s received tweet : %s having tweetid :%s " mailbox.Self.Path.Name arg1 arg2
+
+        | "ReceiveReTweet" ->
             let originUserId = arg2
             printfn "%s received retweet by %s : %s" originUserId mailbox.Self.Path.Name arg1
 

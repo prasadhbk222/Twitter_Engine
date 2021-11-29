@@ -5,3 +5,6 @@
 /twitter-client/bin/*
 /twitter-client/obj/*
 
+
+.fake
+.ionide
