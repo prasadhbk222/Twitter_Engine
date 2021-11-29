@@ -368,7 +368,8 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
         | FollowHashTag(userId, hashTag) ->
             if hashTagFollowerList.ContainsKey(hashTag) then
                 let mutable followerDict = hashTagFollowerList.[hashTag]
-                followerDict.Add(userId, userId)
+                if not <| (followerDict.ContainsKey(userId)) then
+                    followerDict.Add(userId, userId)
             else 
                 let mutable followerDict = new Dictionary<String, String>()
                 followerDict.Add(userId, userId)

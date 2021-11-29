@@ -68,6 +68,8 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(2000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("Tweet", "","", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(3000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("ReTweet", "","", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(3000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("QueryByHashTagOrMention", "","", new List<String>(), new List<String>()))
+            clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(1000.0),TimeSpan.FromMilliseconds(1000.0),mailbox.Self, ("FollowHashTag", "","", new List<String>(), new List<String>()))
+
 
 
 
@@ -79,6 +81,14 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
                 let followerUserId = "user" + (string)followid
             //printfn "%s" followerUserId
                 clientConnRef <! ("Follow", username, followerUserId,"")
+
+        //clientConnRef <! ("FollowHashTag","nikhil", "#Mumbai","")
+        | "FollowHashTag" ->
+            let index = Random().Next(0, embedWordList.Length - 1)
+            let mutable embedWord = embedWordList.[index]
+            if  not <| (embedWord.[0] = '#') then
+                embedWord <- "#" + embedWord
+            clientConnRef <! ("FollowHashTag",mailbox.Self.Path.Name, embedWord,"")
 
 
         | "Tweet" ->
