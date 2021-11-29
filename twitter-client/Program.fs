@@ -85,7 +85,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             let index = Random().Next(0, embedWordList.Length - 1)
             let embedWord = embedWordList.[index]
             let mutable mention = "abc"
-            if index < 4 then 
+            if index < embedWordList.Length/2 then 
                 let username = mailbox.Self.Path.Name
                 let id = username.Substring(4) |> int
                 let mentionId = Random().Next(1, id)
@@ -122,6 +122,12 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             let mutable embedWord = embedWordList.[index]
             if  not <| (embedWord.[0] = '#') then
                 embedWord <- "#" + embedWord
+            if index < embedWordList.Length/2 then 
+                let username = mailbox.Self.Path.Name
+                let id = username.Substring(4) |> int
+                let mentionId = Random().Next(1, id)
+                if not <| (id = mentionId) then 
+                    embedWord <- "@user" + (string)mentionId
             clientConnRef <! ("QueryByHashTagOrMention", mailbox.Self.Path.Name, embedWord, "")
 
         
