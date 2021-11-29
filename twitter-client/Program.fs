@@ -54,6 +54,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
     let queueTweetIds = new Queue<int>()
     let queueTweets = new Queue<String>()
     let queueSize = 10;
+    let embedWordList = ["#Dosp"; "blackfriday"; "#GatorNights"; "Dosp"; "#blackfriday"; "#GOGATORS"; "DBMS"; "#orangeandblue"; "#DBMS"; "GOGATORS"] 
 
     let rec loop() = actor{
         let! (message:Object) = mailbox.Receive()
@@ -66,6 +67,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(1000.0),TimeSpan.FromMilliseconds(1000.0),mailbox.Self, ("Follow", "","", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(2000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("Tweet", "","", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(3000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("ReTweet", "","", new List<String>(), new List<String>()))
+            clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(3000.0),TimeSpan.FromMilliseconds(2000.0),mailbox.Self, ("QueryByHashTagOrMention", "","", new List<String>(), new List<String>()))
 
 
 
@@ -80,7 +82,16 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
 
 
         | "Tweet" ->
-            clientConnRef <! ("Tweet", mailbox.Self.Path.Name, "Hello followers...gooooood Morning. WITHOUT HASHTAGS","")
+            let index = Random().Next(0, embedWordList.Length - 1)
+            let embedWord = embedWordList.[index]
+            let mutable mention = "abc"
+            if index < 4 then 
+                let username = mailbox.Self.Path.Name
+                let id = username.Substring(4) |> int
+                let mentionId = Random().Next(1, id)
+                if not <| (id = mentionId) then 
+                    mention <- "@user" + (string)mentionId
+            clientConnRef <! ("Tweet", mailbox.Self.Path.Name, sprintf "Random hashtag tweet %s and %s" embedWord mention,"")
 
         | "ReTweet" ->
             let currentQueueLength = queueTweetIds.Count
@@ -105,14 +116,26 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             let originUserId = arg2
             printfn "%s received retweet by %s : %s" originUserId mailbox.Self.Path.Name arg1
 
+        //clientConnRef <! ("QueryByHashTagOrMention", "arijit", "#Cricket", "")
+        | "QueryByHashTagOrMention" ->
+            let index = Random().Next(0, embedWordList.Length - 1)
+            let mutable embedWord = embedWordList.[index]
+            if  not <| (embedWord.[0] = '#') then
+                embedWord <- "#" + embedWord
+            clientConnRef <! ("QueryByHashTagOrMention", mailbox.Self.Path.Name, embedWord, "")
+
         
         | "ReceiveQueryResult" ->
+            let tag = arg1
             let tweetersList = arg3
             let tweetList = arg4
             let tc = tweetList.Count - 1
+            let mutable output = ""
+            printfn "User %s searched for tag %s"  mailbox.Self.Path.Name tag
             for i in 0..tc do
-                printfn "Following tweets were sent to %s : %s : %s"  mailbox.Self.Path.Name tweetersList.[i] tweetList.[i]
-
+                output <- output + tweetersList.[i] + tweetList.[i] + "\n"
+                //printfn "User %s searched for tag %s : %s : %s"  mailbox.Self.Path.Name tag tweetersList.[i] tweetList.[i]
+            printfn "User %s searched for tag %s \n Output : %s"  mailbox.Self.Path.Name tag output
 
             
             

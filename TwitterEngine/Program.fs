@@ -49,7 +49,7 @@ type TweetsActorInstructions=
 
 type TweetsSenderActorInstruction=
     | SendTweet of string*int*string*Dictionary<string,string> // tweet and recipientList
-    | Query of List<String>*List<string>*string            // tweet list, tweeter list and userid 
+    | Query of List<String>*List<string>*string*string           // tweet list, tweeter list, userid , tag
     | SendRetweet of string*string*string*Dictionary<string,string>  //(userId, originUserId, tweet, followerList)
 
 type TweetParser =
@@ -98,14 +98,14 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             //recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet by %s =>%s<= was sent to %s"  index userid tweet item)
             // recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet =>%s<= was sent to %s" index tweet recipientList.[index])
 
-        | Query(tweetList, tweetersList, user) ->
+        | Query(tweetList, tweetersList, user, tag) ->
             // mapping of tweetlist and tweeter list will be done at client according to index
             let url = "akka.tcp://clientSystem@localhost:4000/user/" + user
             let userRef = select url twitterSystem
-            userRef <! ("ReceiveQueryResult","","", tweetersList, tweetList)
+            userRef <! ("ReceiveQueryResult",tag,"", tweetersList, tweetList)
             let tc = tweetList.Count - 1
             for i in 0..tc do
-                printfn "Following tweets were sent to %s : %s : %s"  user tweetersList.[i] tweetList.[i]
+                printfn "User %s searched for tag %s : %s : %s"  user tag tweetersList.[i] tweetList.[i]
 
         | SendRetweet (userId, originUserId, tweet, recipientDict) ->
             for recipient in recipientDict do
@@ -234,7 +234,7 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
             let tweetsSenderRef = select actorPath twitterSystem
             let tweet = tweetsMap.[tweetId]
-            tweetsSenderRef <! Query(listTweet, tweetersList, userid)
+            tweetsSenderRef <! Query(listTweet, tweetersList, userid, tag)
 
             
 
