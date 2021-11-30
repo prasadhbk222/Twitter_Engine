@@ -132,7 +132,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             let statusMsg = arg2
             if statusMsg = "success" then
                 loggedIn <- true
-
+                mailbox.Self <! ("ShowFeed", "", "", new List<String>(), new List<String>())
                 clientSystem.Scheduler.ScheduleTellOnce(TimeSpan.FromMilliseconds(10000.0),mailbox.Self, ("Logout", mailbox.Self.Path.Name, mailbox.Self.Path.Name, new List<string>(), new List<string>()))
             else
                 loggedIn <- false
@@ -166,6 +166,15 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             queueTweets.Enqueue(tweet)
             if loggedIn then
                 printfn "%s received retweet by %s : %s" originUserId mailbox.Self.Path.Name tweet
+
+        | "ShowFeed" ->
+            let mutable feed = ""
+            let tweetArray = queueTweets.ToArray()
+            for i in [1..queueTweets.Count] do
+                feed <- feed + tweetArray.[i-1] + "\n"
+            printfn "@@@@@@@@@ %s feed: \n %s" mailbox.Self.Path.Name feed
+
+
 
         //clientConnRef <! ("QueryByHashTagOrMention", "arijit", "#Cricket", "")
         | "QueryByHashTagOrMention" ->
