@@ -24,7 +24,7 @@ open Myconfig
 open System.IO
 
 type UsersActorInstructions=
-    | RegisterAccount of string*string
+    | RegisterAccount of string*string*string
     | Test
     | Login of string*string
     | Logout of string
@@ -55,6 +55,7 @@ type TweetsSenderActorInstruction=
     | SendLoginToken of string*string   //userid //success or failure
     | SendLogout of string
     | PrintSenderInfo
+    | ReceiveUserIpPortMapping of Dictionary<string,string>
 
 type TweetParser =
     | GetHashTagsAndMentions of string*int*string //tweet
@@ -96,7 +97,8 @@ let TweetsParserActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
 
 let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     //printfn "abc"
-    let url = "akka.tcp://clientSystem@localhost:4000/user/twitterServerRef"
+    //let url = "akka.tcp://clientSystem@localhost:4000/user/twitterServerRef"
+    let mutable userIpPortMap = new Dictionary<string, string>()
     let StatsFilepath = "ServerLogs/EngineRequestsServed.txt"
     let mutable totalReqServed = 0
     let mutable TweetsServed = 0
@@ -110,10 +112,15 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     let rec loop() = actor{
         let! message = mailbox.Receive()
         match message with
+        | ReceiveUserIpPortMapping updatedDict ->
+            userIpPortMap <- updatedDict
+
         | SendTweet (userid, tweetId, tweet, recipientDict) ->
             
             for recipient in recipientDict do
-                let url = "akka.tcp://clientSystem@localhost:4000/user/" + recipient.Key
+                //let url = "akka.tcp://clientSystem@localhost:4000/user/" + recipient.Key
+                let url = "akka.tcp://clientSystem@" + userIpPortMap.[recipient.Key] + "/user/" + recipient.Key
+                printfn "@@@URL is %s " url
                 let userRef = select url twitterSystem
                 totalReqServed <- totalReqServed + 1
                 TweetsServed <- TweetsServed + 1
@@ -127,7 +134,8 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             totalReqServed <- totalReqServed + 1
             QueriesReqServed <- QueriesReqServed + 1
             // mapping of tweetlist and tweeter list will be done at client according to index
-            let url = "akka.tcp://clientSystem@localhost:4000/user/" + user
+            //let url = "akka.tcp://clientSystem@localhost:4000/user/" + user
+            let url = "akka.tcp://clientSystem@" + userIpPortMap.[user] + "/user/" + user
             let userRef = select url twitterSystem
             userRef <! ("ReceiveQueryResult",tag,"", tweetersList, tweetList)
             let tc = tweetList.Count - 1
@@ -136,7 +144,8 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
 
         | SendRetweet (userId, originUserId, tweet, recipientDict, tweetId) ->
             for recipient in recipientDict do
-                let url = "akka.tcp://clientSystem@localhost:4000/user/" + recipient.Key
+                // let url = "akka.tcp://clientSystem@localhost:4000/user/" + recipient.Key
+                let url = "akka.tcp://clientSystem@" + userIpPortMap.[recipient.Key] + "/user/" + recipient.Key
                 let userRef = select url twitterSystem
                 totalReqServed <- totalReqServed + 1
                 ReTweetsServed <- ReTweetsServed + 1
@@ -150,7 +159,8 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             totalReqServed <- totalReqServed + 1
             LoginReqServed <- LoginReqServed + 1
             printfn "In SendLogin: %s" userId
-            let url = "akka.tcp://clientSystem@localhost:4000/user/" + userId
+            //let url = "akka.tcp://clientSystem@localhost:4000/user/" + userId
+            let url = "akka.tcp://clientSystem@" + userIpPortMap.[userId] + "/user/" + userId
             let userRef = select url twitterSystem
             userRef <! ("ReceiveLoginAck",userId,loginStatus, new List<String>(), new List<String>())
             
@@ -158,7 +168,8 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
         | SendLogout (userId) ->
             totalReqServed <- totalReqServed + 1
             LogoutReqServed <- LogoutReqServed + 1
-            let url = "akka.tcp://clientSystem@localhost:4000/user/" + userId
+            //let url = "akka.tcp://clientSystem@localhost:4000/user/" + userId
+            let url = "akka.tcp://clientSystem@" + userIpPortMap.[userId] + "/user/" + userId
             let userRef = select url twitterSystem
             userRef <! ("ReceiveLogoutAck",userId,"", new List<String>(), new List<String>())
             
@@ -321,7 +332,7 @@ let TwitterServer  usersRef tweetsRef (twitterSystem : ActorSystem) (mailbox: Ac
         match instruction with
         | "Initiate" ->
             File.WriteAllText(StatsFilepath, "")
-            twitterSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(6000.0),TimeSpan.FromMilliseconds(60000.0),mailbox.Self, ("PrintInfo", "","", "")) 
+            twitterSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(6000.0),TimeSpan.FromMilliseconds(6000.0),mailbox.Self, ("PrintInfo", "","", "")) 
         | "RegisterAccount" ->
             totalReqReceived <- totalReqReceived + 1
             
@@ -330,8 +341,10 @@ let TwitterServer  usersRef tweetsRef (twitterSystem : ActorSystem) (mailbox: Ac
             
             let userid = arg1
             let password = arg2
+            let ipPortString = arg3
             printfn "%s %s" userid password
-            usersRef <! RegisterAccount(userid, password)
+            let ipPortString = arg3
+            usersRef <! RegisterAccount(userid, password, ipPortString)
 
         | "Login" ->
             totalReqReceived <- totalReqReceived + 1
@@ -406,6 +419,7 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     let mutable activeUsersSet = Set.empty
     let userFollowerList = new Dictionary<string, Dictionary<string,string>>()
     let hashTagFollowerList = new Dictionary<string, Dictionary<string, string>>()
+    let userIpPortMap = new Dictionary<string, string>()
     let rec loop() = actor {
         let! message = mailbox.Receive()
        
@@ -414,13 +428,17 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
        
 
         match message with 
-        | RegisterAccount (userid, password) ->
+        | RegisterAccount (userid, password, ipPortString) ->
             printfn "%s %s" userid password
             // Hash the password later
             let followerDict = new Dictionary<string,string>() 
             //userFollowerList <- userFollowerList.Add(userid, followerList)
             userFollowerList.Add(userid, followerDict)
             userPasswordMap.Add(userid, hashFunction password)
+            userIpPortMap.Add(userid, ipPortString)
+            let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
+            let tweetsSenderRef = select actorPath twitterSystem
+            tweetsSenderRef <! ReceiveUserIpPortMapping userIpPortMap
             //userPasswordMap <- userPasswordMap.Add(userid, password)
             
 

@@ -62,7 +62,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
     let userName = mailbox.Self.Path.Name
     let path = "UserLogs/" + userName + "_feed.txt"
     let actionPAth = "UserLogs/" + userName + "_action.txt"
-    let clientSystemName = "cOne"
+    let clientSystemName = "cTwo"
     
 
     let rec loop() = actor{
@@ -75,7 +75,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             File.WriteAllText(actionPAth, "")
             let sendingTime = (mailbox.Self.Path.Name.Substring(4) |> float) * 100.0
             printfn "%s" mailbox.Self.Path.Name
-            clientConnRef <! ("RegisterAccount",mailbox.Self.Path.Name, mailbox.Self.Path.Name, "localhost:4000")
+            clientConnRef <! ("RegisterAccount",mailbox.Self.Path.Name, mailbox.Self.Path.Name, "localhost:3000")
             clientSystem.Scheduler.ScheduleTellOnce(TimeSpan.FromMilliseconds(100.0),mailbox.Self, ("Login", "", "", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(1000.0),TimeSpan.FromMilliseconds(1000.0),mailbox.Self, ("Follow", "","", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(2000.0),TimeSpan.FromMilliseconds(sendingTime),mailbox.Self, ("Tweet", "","", new List<String>(), new List<String>()))
@@ -250,7 +250,7 @@ let ClientConn numOfUsers (clientSystem:ActorSystem)  (mailbox: Actor<_>) =
     let twitterServerRef = select url clientSystem 
     let mutable userNumber = 1
     let mutable userId = "dummy"
-    let clientSystemName = "cOne"
+    let clientSystemName = "cTwo"
     let rec loop() = actor{
         let! message = mailbox.Receive()
         match message with
