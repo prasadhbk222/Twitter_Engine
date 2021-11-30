@@ -1,9 +1,14 @@
 /TwitterEngine/bin/*
 /TwitterEngine/obj/*
+/TwitterEngine/ServerLogs/*
 /TwitterEngine/BClient.fsx
 /TwitterEngine/BServer.fsx
 /twitter-client/bin/*
 /twitter-client/obj/*
+/twitter-client/UserLogs/*
+/twitter-client2/bin/*
+/twitter-client2/obj/*
+/twitter-client2/UserLogs/*
 
 
 .fake
