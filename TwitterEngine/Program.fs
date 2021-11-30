@@ -21,6 +21,7 @@ open Akka.FSharp
 open Akka.Remote
 open Akka.Actor
 open Myconfig
+open System.IO
 
 type UsersActorInstructions=
     | RegisterAccount of string*string
@@ -53,6 +54,7 @@ type TweetsSenderActorInstruction=
     | SendRetweet of string*string*string*Dictionary<string,string>*int  //(userId, originUserId, tweet, followerList)
     | SendLoginToken of string*string   //userid //success or failure
     | SendLogout of string
+    | PrintSenderInfo
 
 type TweetParser =
     | GetHashTagsAndMentions of string*int*string //tweet
@@ -95,14 +97,26 @@ let TweetsParserActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
 let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     //printfn "abc"
     let url = "akka.tcp://clientSystem@localhost:4000/user/twitterServerRef"
+    let StatsFilepath = "ServerLogs/EngineRequestsServed.txt"
+    let mutable totalReqServed = 0
+    let mutable TweetsServed = 0
+    let mutable ReTweetsServed = 0
+    let mutable LoginReqServed = 0
+    let mutable LogoutReqServed = 0
+    let mutable QueriesReqServed = 0
+    File.WriteAllText(StatsFilepath, "")
+
     
     let rec loop() = actor{
         let! message = mailbox.Receive()
         match message with
         | SendTweet (userid, tweetId, tweet, recipientDict) ->
+            
             for recipient in recipientDict do
                 let url = "akka.tcp://clientSystem@localhost:4000/user/" + recipient.Key
                 let userRef = select url twitterSystem
+                totalReqServed <- totalReqServed + 1
+                TweetsServed <- TweetsServed + 1
                 userRef <! ("ReceiveTweet", sprintf "The tweet by %s =>%s<=having tweetId : %i was sent to %s" userid tweet tweetId recipient.Key , (string)tweetId, new List<String>(), new List<String>())
                 printfn "The tweet by %s =>%s<=having tweetId : %i was sent to %s" userid tweet tweetId recipient.Key
 
@@ -110,6 +124,8 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             // recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet =>%s<= was sent to %s" index tweet recipientList.[index])
 
         | Query(tweetList, tweetersList, user, tag) ->
+            totalReqServed <- totalReqServed + 1
+            QueriesReqServed <- QueriesReqServed + 1
             // mapping of tweetlist and tweeter list will be done at client according to index
             let url = "akka.tcp://clientSystem@localhost:4000/user/" + user
             let userRef = select url twitterSystem
@@ -122,6 +138,8 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             for recipient in recipientDict do
                 let url = "akka.tcp://clientSystem@localhost:4000/user/" + recipient.Key
                 let userRef = select url twitterSystem
+                totalReqServed <- totalReqServed + 1
+                ReTweetsServed <- ReTweetsServed + 1
                 userRef <! ("ReceiveReTweet", sprintf "%s:The tweet by %s was retweeted by %s =>%s<= was sent to  %s" ((string)tweetId) originUserId  userId tweet recipient.Key 
  , originUserId, new List<String>(), new List<String>())
                 printfn "The tweet by %s was retweeted by %s =>%s<= was sent to %s " originUserId  userId tweet recipient.Key 
@@ -129,6 +147,8 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
         
 
         | SendLoginToken (userId, loginStatus) ->
+            totalReqServed <- totalReqServed + 1
+            LoginReqServed <- LoginReqServed + 1
             printfn "In SendLogin: %s" userId
             let url = "akka.tcp://clientSystem@localhost:4000/user/" + userId
             let userRef = select url twitterSystem
@@ -136,11 +156,20 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             
 
         | SendLogout (userId) ->
+            totalReqServed <- totalReqServed + 1
+            LogoutReqServed <- LogoutReqServed + 1
             let url = "akka.tcp://clientSystem@localhost:4000/user/" + userId
             let userRef = select url twitterSystem
             userRef <! ("ReceiveLogoutAck",userId,"", new List<String>(), new List<String>())
             
-
+        | PrintSenderInfo ->
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "Total Outgoing Messages: %i \n" totalReqServed)
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "Login Requests Served: %i \n" LoginReqServed)
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "Logout Requests Served: %i \n" LogoutReqServed)
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "Outgoing Tweet: %i \n" TweetsServed)
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "Outgoing ReTweets: %i \n" ReTweetsServed)
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "QueryByHashTagOrMentionRequest Requests Served: %i \n" QueriesReqServed)
+            twitterSystem.Scheduler.ScheduleTellOnce(TimeSpan.FromMilliseconds(6000.0),mailbox.Self, PrintSenderInfo)
 
 
 
@@ -260,13 +289,8 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let tweet = tweetsMap.[tweetId]
             tweetsSenderRef <! Query(listTweet, tweetersList, userid, tag)
 
-            
-
-
-        | _-> 
+        | _ -> 
             printfn "Wrong input"
-
-
 
         return! loop()
     }
@@ -276,42 +300,77 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
 
 let TwitterServer  usersRef tweetsRef (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     //printfn "abc"
+
+    let mutable totalReqReceived = 0
+    // let mutable RegistrationRequest = 0
+    let mutable LoginRequest = 0
+    let mutable LogoutRequest = 0
+    let mutable FollowRequest = 0
+    let mutable FollowHashTagRequest = 0
+    let mutable TweetRequest = 0
+    let mutable ReTweetRequest = 0
+    let mutable QueryByHashTagOrMentionRequest = 0
+    let mutable RegistrationRequest = 0
+    let StatsFilepath = "ServerLogs/EngineRequestsReceived.txt"
     let rec loop() = actor{
         let! (message:Object) = mailbox.Receive()
+        
+
         // printfn "Message received from the other side %A" message
         let (instruction, arg1, arg2, arg3) : Tuple<String,string,string,string> = downcast message
-        match instruction with 
+        match instruction with
+        | "Initiate" ->
+            File.WriteAllText(StatsFilepath, "")
+            twitterSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(6000.0),TimeSpan.FromMilliseconds(60000.0),mailbox.Self, ("PrintInfo", "","", "")) 
         | "RegisterAccount" ->
+            totalReqReceived <- totalReqReceived + 1
+            
+            RegistrationRequest <- RegistrationRequest + 1
+            File.AppendAllText(StatsFilepath, sprintf "%i \n" totalReqReceived)
+            
             let userid = arg1
             let password = arg2
             printfn "%s %s" userid password
             usersRef <! RegisterAccount(userid, password)
 
         | "Login" ->
+            totalReqReceived <- totalReqReceived + 1
+            LoginRequest <- LoginRequest + 1
             let userid = arg1
             let password = arg2
             usersRef <! Login(userid, password)
 
         | "Logout" ->
+            totalReqReceived <- totalReqReceived + 1
+            LogoutRequest <- LogoutRequest + 1
             let userid = arg1;
             usersRef <! Logout(userid)
 
         | "Follow" ->
+            totalReqReceived <- totalReqReceived + 1
+            FollowRequest <- FollowRequest + 1
             let userId = arg1
             let userIdOfFollowed = arg2
             usersRef <! Follow(userId, userIdOfFollowed)
 
         | "FollowHashTag" ->
+            totalReqReceived <- totalReqReceived + 1
+            FollowHashTagRequest <- FollowHashTagRequest + 1
             let userId = arg1
             let hashTag = arg2
             usersRef <! FollowHashTag(userId, hashTag)
 
         | "Tweet" ->
+            totalReqReceived <- totalReqReceived + 1
+            TweetRequest <- TweetRequest + 1
+            printfn "&&&&&&&&&&&&&&&%i \n" totalReqReceived
             let userId = arg1
             let tweet = arg2
             tweetsRef <! Tweet(userId, tweet)
 
         | "ReTweet" ->
+            totalReqReceived <- totalReqReceived + 1
+            ReTweetRequest <- ReTweetRequest + 1
             let userId = arg1
             //let originUserId = arg2
             let tweetId = (int)arg2
@@ -319,16 +378,22 @@ let TwitterServer  usersRef tweetsRef (twitterSystem : ActorSystem) (mailbox: Ac
             tweetsRef <! ReTweet(userId, tweetId)
 
         | "QueryByHashTagOrMention" ->
+            totalReqReceived <- totalReqReceived + 1
+            QueryByHashTagOrMentionRequest <- QueryByHashTagOrMentionRequest + 1
             let userId = arg1
             let tag = arg2
             tweetsRef <! QueryByHashTagOrMention(userId, tag) 
 
-        
-
-        
-             
-
-        
+        | "PrintInfo" ->
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "Total Requests Received: %i \n" totalReqReceived)
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "Login Requests Received: %i \n" LoginRequest)
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "Logout Requests Received: %i \n" LogoutRequest)
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "Follow Requests Received: %i \n" FollowRequest)
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "FollowHashTag Requests Received: %i \n" FollowHashTagRequest)
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "Tweet Requests Received: %i \n" TweetRequest)
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "ReTweet Requests Received: %i \n" ReTweetRequest)
+            File.AppendAllText(StatsFilepath, DateTime.Now.ToString() + ":" + sprintf "QueryByHashTagOrMentionRequest Requests Received: %i \n" QueryByHashTagOrMentionRequest)
+            
 
 
         return! loop()
@@ -498,6 +563,8 @@ let main argv =
     let tweetsParserRef = spawn twitterSystem "tweetsParserRef" (TweetsParserActor twitterSystem);
 
     let twitterServerRef = spawn twitterSystem "twitterServerRef" (TwitterServer usersRef tweetsRef twitterSystem ) ;
+    twitterServerRef <! ("Initiate","","","")
+    tweetsSenderRef <! PrintSenderInfo
     // usersRef <! RegisterAccount("prasad", "prasad")
     // usersRef <! RegisterAccount("vaishnavi", "vaishnavi")
     // usersRef <! RegisterAccount("siddhi", "siddhi")

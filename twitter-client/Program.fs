@@ -60,8 +60,8 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
     let mutable tweetCount = 0
     let mutable retweetCount = 0
     let userName = mailbox.Self.Path.Name
-    let path = userName + "_feed.txt"
-    let actionPAth = userName + "_action.txt"
+    let path = "UserLogs/" + userName + "_feed.txt"
+    let actionPAth = "UserLogs/" + userName + "_action.txt"
     
 
     let rec loop() = actor{
