@@ -55,7 +55,7 @@ type TweetsSenderActorInstruction=
     | SendLoginToken of string*string   //userid //success or failure
     | SendLogout of string
     | PrintSenderInfo
-    | ReceiveUserIpPortMapping of Dictionary<string,string>
+    | SendRegistrationConfirmation of string*string
 
 type TweetParser =
     | GetHashTagsAndMentions of string*int*string //tweet
@@ -73,7 +73,7 @@ let TweetsParserActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     //printfn "abc"
     let rec loop() = actor{
         let! message = mailbox.Receive()
-        printfn "@@@@@@@@@@@@@@@@@@@@@ in tweets parser"
+        // printfn "@@@@@@@@@@@@@@@@@@@@@ in tweets parser"
         match message with
         | GetHashTagsAndMentions (userId,tweetId, tweet) ->
             let words = tweet.Split ' '
@@ -112,20 +112,24 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
     let rec loop() = actor{
         let! message = mailbox.Receive()
         match message with
-        | ReceiveUserIpPortMapping updatedDict ->
-            userIpPortMap <- updatedDict
+        | SendRegistrationConfirmation (user, ipPort) ->
+            userIpPortMap.Add(user, ipPort)
+            let url = "akka.tcp://clientSystem@" + userIpPortMap.[user] + "/user/" + user
+            //printfn "url is %s" url
+            let userRef = select url twitterSystem
+            userRef <! ("ReceiveRegistrationConfirmation", user,"", new List<String>(), new List<String>())
 
         | SendTweet (userid, tweetId, tweet, recipientDict) ->
             
             for recipient in recipientDict do
                 //let url = "akka.tcp://clientSystem@localhost:4000/user/" + recipient.Key
                 let url = "akka.tcp://clientSystem@" + userIpPortMap.[recipient.Key] + "/user/" + recipient.Key
-                printfn "@@@URL is %s " url
+                // printfn "@@@URL is %s " url
                 let userRef = select url twitterSystem
                 totalReqServed <- totalReqServed + 1
                 TweetsServed <- TweetsServed + 1
                 userRef <! ("ReceiveTweet", sprintf "The tweet by %s =>%s<=having tweetId : %i was sent to %s" userid tweet tweetId recipient.Key , (string)tweetId, new List<String>(), new List<String>())
-                printfn "The tweet by %s =>%s<=having tweetId : %i was sent to %s" userid tweet tweetId recipient.Key
+                // printfn "The tweet by %s =>%s<=having tweetId : %i was sent to %s" userid tweet tweetId recipient.Key
 
             //recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet by %s =>%s<= was sent to %s"  index userid tweet item)
             // recipientList |> Seq.iteri (fun index item -> printfn "%i: The tweet =>%s<= was sent to %s" index tweet recipientList.[index])
@@ -138,9 +142,9 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let url = "akka.tcp://clientSystem@" + userIpPortMap.[user] + "/user/" + user
             let userRef = select url twitterSystem
             userRef <! ("ReceiveQueryResult",tag,"", tweetersList, tweetList)
-            let tc = tweetList.Count - 1
-            for i in 0..tc do
-                printfn "User %s searched for tag %s : %s : %s"  user tag tweetersList.[i] tweetList.[i]
+            // let tc = tweetList.Count - 1
+            // for i in 0..tc do
+            //     printfn "User %s searched for tag %s : %s : %s"  user tag tweetersList.[i] tweetList.[i]
 
         | SendRetweet (userId, originUserId, tweet, recipientDict, tweetId) ->
             for recipient in recipientDict do
@@ -151,14 +155,14 @@ let TweetsSenderActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
                 ReTweetsServed <- ReTweetsServed + 1
                 userRef <! ("ReceiveReTweet", sprintf "%s:The tweet by %s was retweeted by %s =>%s<= was sent to  %s" ((string)tweetId) originUserId  userId tweet recipient.Key 
  , originUserId, new List<String>(), new List<String>())
-                printfn "The tweet by %s was retweeted by %s =>%s<= was sent to %s " originUserId  userId tweet recipient.Key 
+                // printfn "The tweet by %s was retweeted by %s =>%s<= was sent to %s " originUserId  userId tweet recipient.Key 
 
         
 
         | SendLoginToken (userId, loginStatus) ->
             totalReqServed <- totalReqServed + 1
             LoginReqServed <- LoginReqServed + 1
-            printfn "In SendLogin: %s" userId
+            // printfn "In SendLogin: %s" userId
             //let url = "akka.tcp://clientSystem@localhost:4000/user/" + userId
             let url = "akka.tcp://clientSystem@" + userIpPortMap.[userId] + "/user/" + userId
             let userRef = select url twitterSystem
@@ -280,7 +284,7 @@ let TweetsActor  (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
         | QueryByHashTagOrMention (userid, tag) ->
             let listTweet = new List<String>()
             let tweetersList = new List<String>()
-            printfn "@@Mentions tweet map %A" mentionsTweetMap
+            // printfn "@@Mentions tweet map %A" mentionsTweetMap
             if tag.[0] = '@' then
                 if mentionsTweetMap.ContainsKey(tag) then
                     let listTweetId = mentionsTweetMap.[tag]
@@ -342,7 +346,7 @@ let TwitterServer  usersRef tweetsRef (twitterSystem : ActorSystem) (mailbox: Ac
             let userid = arg1
             let password = arg2
             let ipPortString = arg3
-            printfn "%s %s" userid password
+            // printfn "%s %s" userid password
             let ipPortString = arg3
             usersRef <! RegisterAccount(userid, password, ipPortString)
 
@@ -376,7 +380,7 @@ let TwitterServer  usersRef tweetsRef (twitterSystem : ActorSystem) (mailbox: Ac
         | "Tweet" ->
             totalReqReceived <- totalReqReceived + 1
             TweetRequest <- TweetRequest + 1
-            printfn "&&&&&&&&&&&&&&&%i \n" totalReqReceived
+            // printfn "&&&&&&&&&&&&&&&%i \n" totalReqReceived
             let userId = arg1
             let tweet = arg2
             tweetsRef <! Tweet(userId, tweet)
@@ -387,7 +391,7 @@ let TwitterServer  usersRef tweetsRef (twitterSystem : ActorSystem) (mailbox: Ac
             let userId = arg1
             //let originUserId = arg2
             let tweetId = (int)arg2
-            printfn "IN REWEET @@@ tweetid is %i" tweetId
+            // printfn "IN REWEET @@@ tweetid is %i" tweetId
             tweetsRef <! ReTweet(userId, tweetId)
 
         | "QueryByHashTagOrMention" ->
@@ -429,7 +433,7 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
 
         match message with 
         | RegisterAccount (userid, password, ipPortString) ->
-            printfn "%s %s" userid password
+            // printfn "%s %s" userid password
             // Hash the password later
             let followerDict = new Dictionary<string,string>() 
             //userFollowerList <- userFollowerList.Add(userid, followerList)
@@ -438,7 +442,7 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             userIpPortMap.Add(userid, ipPortString)
             let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
             let tweetsSenderRef = select actorPath twitterSystem
-            tweetsSenderRef <! ReceiveUserIpPortMapping userIpPortMap
+            tweetsSenderRef <! SendRegistrationConfirmation (userid, ipPortString)
             //userPasswordMap <- userPasswordMap.Add(userid, password)
             
 
@@ -448,19 +452,19 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let tweetsSenderRef = select actorPath twitterSystem
             if userPasswordMap.ContainsKey(userid) then
                 if (hashFunction password = userPasswordMap.[userid]) then
-                    printfn "Welcome %s!! Login Successful"  userid
+                    // printfn "Welcome %s!! Login Successful"  userid
                     activeUsersSet <- activeUsersSet.Add(userid)
-                    printfn "Later Welcome %s!! Login Successful"  userid
+                    // printfn "Later Welcome %s!! Login Successful"  userid
                     tweetsSenderRef <! SendLoginToken(userid, "success")
 
 
                     // send a token without which user cannot do further actions
                 else
                     tweetsSenderRef <! SendLoginToken(userid, "failure")
-                    printfn "Wrong password"
+                    // printfn "Wrong password"
             else
                 tweetsSenderRef <! SendLoginToken(userid, "failure")
-                printfn "Username doesn't exist"
+                // printfn "Username doesn't exist"
         
 
 
@@ -468,7 +472,7 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
             let actorPath =  @"akka://twitterSystem/user/tweetsSenderRef"
             let tweetsSenderRef = select actorPath twitterSystem
             activeUsersSet <- activeUsersSet.Remove(userid)
-            printfn "################################################################################################################################%A" activeUsersSet.Count
+            // printfn "################################################################################################################################%A" activeUsersSet.Count
             tweetsSenderRef <! SendLogout(userid)
 
             // destroy token at the client side
@@ -548,17 +552,17 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
 
 
 
-        | PrintInfo ->
-            printfn "Active users are %A" activeUsersSet
-            printfn "All users are %A" userPasswordMap
-            printfn "User followers lists are %A" userFollowerList
-            printfn "%A" mailbox.Self.Path
+        // | PrintInfo ->
+        //     printfn "Active users are %A" activeUsersSet
+        //     printfn "All users are %A" userPasswordMap
+        //     printfn "User followers lists are %A" userFollowerList
+        //     printfn "%A" mailbox.Self.Path
 
-        | Test ->
-            printfn "test"
+        // | Test ->
+        //     printfn "test"
 
-        | _-> 
-            printfn "Wrong input"
+        // | _-> 
+        //     printfn "Wrong input"
             
 
 
@@ -572,7 +576,6 @@ let UsersActor (twitterSystem : ActorSystem) (mailbox: Actor<_>) =
 
 [<EntryPoint>]
 let main argv =
-    let nodes = (int) argv.[0];
     let twitterSystem = ActorSystem.Create("twitterSystem", config);
     
     let tweetsSenderRef = spawn twitterSystem "tweetsSenderRef" (TweetsSenderActor twitterSystem);

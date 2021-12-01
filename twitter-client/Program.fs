@@ -57,6 +57,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
     let queueSize = 10;
     let embedWordList = ["#Dosp"; "blackfriday"; "#GatorNights"; "Dosp"; "#blackfriday"; "#GOGATORS"; "DBMS"; "#orangeandblue"; "#DBMS"; "GOGATORS"] 
     let mutable loggedIn:Boolean = false
+    let mutable registrationConfirm:Boolean = false
     let mutable tweetCount = 0
     let mutable retweetCount = 0
     let userName = mailbox.Self.Path.Name
@@ -76,7 +77,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             let sendingTime = (mailbox.Self.Path.Name.Substring(4) |> float) * 100.0
             printfn "%s" mailbox.Self.Path.Name
             clientConnRef <! ("RegisterAccount",mailbox.Self.Path.Name, mailbox.Self.Path.Name, "localhost:4000")
-            clientSystem.Scheduler.ScheduleTellOnce(TimeSpan.FromMilliseconds(100.0),mailbox.Self, ("Login", "", "", new List<String>(), new List<String>()))
+            // clientSystem.Scheduler.ScheduleTellOnce(TimeSpan.FromMilliseconds(100.0),mailbox.Self, ("Login", "", "", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(1000.0),TimeSpan.FromMilliseconds(1000.0),mailbox.Self, ("Follow", "","", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(2000.0),TimeSpan.FromMilliseconds(sendingTime),mailbox.Self, ("Tweet", "","", new List<String>(), new List<String>()))
             clientSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromMilliseconds(3000.0),TimeSpan.FromMilliseconds(sendingTime),mailbox.Self, ("ReTweet", "","", new List<String>(), new List<String>()))
@@ -87,18 +88,20 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
 
         // clientConnRef <! Login("prasad", "prasad")
         | "Login" ->
-            File.AppendAllText(actionPAth, DateTime.Now.ToString() + ":" + userName + " sent a login request \n")
-            clientConnRef <! ("Login", mailbox.Self.Path.Name, mailbox.Self.Path.Name, "")
+            //printfn "%s has registered %A" userName registrationConfirm
+            if registrationConfirm then
+                File.AppendAllText(actionPAth, DateTime.Now.ToString() + ":" + userName + " sent a login request \n")
+                clientConnRef <! ("Login", mailbox.Self.Path.Name, mailbox.Self.Path.Name, "")
 
         | "Logout" ->
-            if loggedIn = true then
+            if loggedIn = true && registrationConfirm then
                 File.AppendAllText(actionPAth, DateTime.Now.ToString() + ":" + userName + " sent a logout request \n")
                 clientConnRef <! ("Logout", mailbox.Self.Path.Name, mailbox.Self.Path.Name, "")
                 clientSystem.Scheduler.ScheduleTellOnce(TimeSpan.FromMilliseconds(10000.0),mailbox.Self, ("Login", mailbox.Self.Path.Name, mailbox.Self.Path.Name, new List<string>() , new List<string>()))
             
 
         | "Follow" ->
-            if loggedIn then
+            if loggedIn && registrationConfirm then
                 let username = mailbox.Self.Path.Name
                 let id = username.Substring(4) |> int
                 let followid = Random().Next(1, id)
@@ -110,7 +113,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
 
         //clientConnRef <! ("FollowHashTag","nikhil", "#Mumbai","")
         | "FollowHashTag" ->
-            if loggedIn then
+            if loggedIn && registrationConfirm then
                 let index = Random().Next(0, embedWordList.Length - 1)
                 let mutable embedWord = embedWordList.[index]
                 if  not <| (embedWord.[0] = '#') then
@@ -120,7 +123,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
 
 
         | "Tweet" ->
-            if loggedIn then
+            if loggedIn && registrationConfirm then
                 let index = Random().Next(0, embedWordList.Length - 1)
                 let embedWord = embedWordList.[index]
                 let mutable mention = "abc"
@@ -135,10 +138,10 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
                 clientConnRef <! ("Tweet", mailbox.Self.Path.Name, sprintf "Random hashtag tweet %s and %s" embedWord mention,"")
                 tweetCount <- tweetCount + 1
                 File.AppendAllText(actionPAth, DateTime.Now.ToString() + ":" + sprintf "%s has sent %i tweets till now \n" userName tweetCount)
-                printfn "%s has sent %i tweets till now" mailbox.Self.Path.Name tweetCount
+                // printfn "%s has sent %i tweets till now" mailbox.Self.Path.Name tweetCount
 
         | "ReTweet" ->
-            if loggedIn then
+            if loggedIn && registrationConfirm then
                 let currentQueueLength = queueTweetIds.Count
                 if currentQueueLength > 1 then
                     let tweetIdIndex = Random().Next(0, queueTweetIds.Count)
@@ -149,10 +152,17 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
                     File.AppendAllText(actionPAth, DateTime.Now.ToString() + ":" + sprintf "%s has retweeted %s having tweetId %i \n" userName tweetArray.[tweetIdIndex] tweetId)
                     File.AppendAllText(actionPAth, DateTime.Now.ToString() + ":" + sprintf "%s has retweeted %i tweets till now \n" userName retweetCount)
                     clientConnRef <! ("ReTweet", mailbox.Self.Path.Name, (string)tweetId, "")
-                    printfn "%s has retweeted %i tweets till now" mailbox.Self.Path.Name retweetCount
+                    // printfn "%s has retweeted %i tweets till now" mailbox.Self.Path.Name retweetCount
+
+        | "ReceiveRegistrationConfirmation" ->
+            let user = arg1
+            registrationConfirm <- true
+            // printfn "%s user registered successfully and %A" user registrationConfirm
+            File.AppendAllText(path, DateTime.Now.ToString() + ":" + user + " has registered successfully \n")
+            clientSystem.Scheduler.ScheduleTellOnce(TimeSpan.FromMilliseconds(100.0),mailbox.Self, ("Login", "", "", new List<String>(), new List<String>()))
 
         | "ReceiveLoginAck" ->
-            printfn "LoginAck rcved: %s" mailbox.Self.Path.Name
+            // printfn "LoginAck rcved: %s" mailbox.Self.Path.Name
             let userId = arg1
             let statusMsg = arg2
             if statusMsg = "success" then
@@ -181,7 +191,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
 
             if loggedIn then
                 File.AppendAllText(path, DateTime.Now.ToString() + ":" + sprintf "%s received tweet : %s having tweetid :%s \n " userName arg1 arg2)
-                printfn "%s received tweet : %s having tweetid :%s \n " mailbox.Self.Path.Name arg1 arg2
+                // printfn "%s received tweet : %s having tweetid :%s \n " mailbox.Self.Path.Name arg1 arg2
 
         | "ReceiveReTweet" ->
             let tweetInfo = arg1.Split ':'
@@ -195,7 +205,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             queueTweets.Enqueue(tweet)
             if loggedIn then
                 File.AppendAllText(path, DateTime.Now.ToString() + ":" + sprintf"%s received retweet by %s : %s \n" originUserId mailbox.Self.Path.Name tweet)
-                printfn "%s received retweet by %s : %s" originUserId mailbox.Self.Path.Name tweet
+                // printfn "%s received retweet by %s : %s" originUserId mailbox.Self.Path.Name tweet
 
         | "ShowFeed" ->
             let mutable feed = ""
@@ -203,7 +213,7 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
             for i in [1..queueTweets.Count] do
                 feed <- feed + tweetArray.[i-1] + "\n"
             File.AppendAllText(path, DateTime.Now.ToString() + ":" + sprintf"@@@@@@@@@ %s feed: \n %s" userName feed)
-            printfn "@@@@@@@@@ %s feed: \n %s" mailbox.Self.Path.Name feed
+            // printfn "@@@@@@@@@ %s feed: \n %s" mailbox.Self.Path.Name feed
 
 
 
@@ -231,12 +241,12 @@ let UserActor (userid:string) (password:string) (clientSystem:ActorSystem) (mail
                 let tweetList = arg4
                 let tc = tweetList.Count - 1
                 let mutable output = ""
-                printfn "User %s searched for tag %s"  mailbox.Self.Path.Name tag
+                // printfn "User %s searched for tag %s"  mailbox.Self.Path.Name tag
                 for i in 0..tc do
                     output <- output + tweetersList.[i] + tweetList.[i] + "\n"
                     //printfn "User %s searched for tag %s : %s : %s"  mailbox.Self.Path.Name tag tweetersList.[i] tweetList.[i]
                 File.AppendAllText(path, DateTime.Now.ToString() + ":" + sprintf"User %s searched for tag %s \n Output : %s \n"  userName tag output)
-                printfn "User %s searched for tag %s \n Output : %s"  mailbox.Self.Path.Name tag output
+                // printfn "User %s searched for tag %s \n Output : %s"  mailbox.Self.Path.Name tag output
 
 
         return! loop()
